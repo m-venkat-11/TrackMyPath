@@ -207,14 +207,18 @@
             center: [defaultLat, defaultLon],
             zoom: defaultZoom,
             zoomControl: false,
-            attributionControl: true
+            attributionControl: true,
+            minZoom: 2,
+            maxZoom: 22
         });
 
-        // 100% Direct Accurate OpenStreetMap (Zero API key required, zero watermarks)
-        var mapTiles = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-            maxZoom: 19,
-            minZoom: 3
+        // 100% Direct Accurate Google Maps HD (Zero API key required, zero watermarks, crystal clear zoom up to 22)
+        var mapTiles = L.tileLayer('https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {
+            subdomains: ['0', '1', '2', '3'],
+            attribution: '&copy; Google Maps',
+            maxZoom: 22,
+            maxNativeZoom: 21,
+            minZoom: 2
         }).addTo(map);
 
         // Layers
@@ -455,7 +459,25 @@
                 window.overlayTiles = null;
             }
 
-            if (provider === 'osm-hot') {
+            if (provider === 'google-hybrid') {
+                mapTiles = L.tileLayer('https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
+                    subdomains: ['0', '1', '2', '3'],
+                    attribution: '&copy; Google Maps',
+                    maxZoom: 22,
+                    maxNativeZoom: 20
+                }).addTo(map);
+            } else if (provider === 'google-terrain') {
+                mapTiles = L.tileLayer('https://mt{s}.google.com/vt/lyrs=p&x={x}&y={y}&z={z}', {
+                    subdomains: ['0', '1', '2', '3'],
+                    attribution: '&copy; Google Maps',
+                    maxZoom: 22,
+                    maxNativeZoom: 20
+                }).addTo(map);
+            } else if (provider === 'osm-standard') {
+                mapTiles = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    maxZoom: 19
+                }).addTo(map);
+            } else if (provider === 'osm-hot') {
                 mapTiles = L.tileLayer('https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png', {
                     subdomains: ['a', 'b', 'c'],
                     maxZoom: 19
@@ -481,8 +503,12 @@
                     maxZoom: 17
                 }).addTo(map);
             } else {
-                mapTiles = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                    maxZoom: 19
+                // Default: Google Maps Streets HD
+                mapTiles = L.tileLayer('https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {
+                    subdomains: ['0', '1', '2', '3'],
+                    attribution: '&copy; Google Maps',
+                    maxZoom: 22,
+                    maxNativeZoom: 21
                 }).addTo(map);
             }
 
