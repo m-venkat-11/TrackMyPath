@@ -1,0 +1,625 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <title>PathWise — Holographic Navigation & City Recall Console</title>
+    <meta name="description" content="Cinematic 3D holographic navigation HUD, GPS route recording, journey replay, and spatial city recall arena." />
+    
+    <!-- Modern Typography: Outfit (Headings), Inter (UI), JetBrains Mono (Telemetry) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600;700&family=Outfit:wght@500;600;700;800;900&display=swap" rel="stylesheet">
+
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+
+    <!-- Core Stylesheet -->
+    <link rel="stylesheet" href="./src/style.css" />
+  </head>
+  <body>
+    <!-- Tactical CRT Scanline & Grain Overlay -->
+    <div class="hud-scanlines" id="hudScanlines" aria-hidden="true"></div>
+
+    <div id="app" class="app-root">
+      <!-- Top Navigation Header -->
+      <header class="hud-header">
+        <div class="hud-brand" id="brandBtn">
+          <div class="brand-emblem">
+            <span class="emblem-core"></span>
+            <span class="emblem-ring"></span>
+          </div>
+          <div class="brand-text">
+            <span class="brand-title">PATHWISE</span>
+            <span class="brand-subtitle">HOLOGRAPHIC HUD v2.0</span>
+          </div>
+        </div>
+
+        <!-- Global Live Telemetry & Quick Status Bar -->
+        <div class="hud-telemetry-pill" id="hudTelemetryPill">
+          <div class="telemetry-item">
+            <span class="telemetry-label">SYS</span>
+            <span class="telemetry-val text-cyan" id="sysStatus">ONLINE</span>
+          </div>
+          <div class="telemetry-divider"></div>
+          <div class="telemetry-item">
+            <span class="telemetry-label">GPS LOCK</span>
+            <div class="satellite-bars" id="satSignalBars">
+              <span class="bar active"></span>
+              <span class="bar active"></span>
+              <span class="bar active"></span>
+              <span class="bar active"></span>
+            </div>
+          </div>
+          <div class="telemetry-divider"></div>
+          <div class="telemetry-item" id="activeStatusPill">
+            <span class="status-dot-pulse"></span>
+            <span class="status-text" id="globalStatusText">STANDBY</span>
+          </div>
+        </div>
+
+        <!-- Desktop Navigation Tabs -->
+        <nav class="hud-nav-desktop" aria-label="Main Navigation">
+          <button class="nav-tab active" data-tab="home" id="tabHome">
+            <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+            <span>HOME</span>
+          </button>
+          <button class="nav-tab" data-tab="map" id="tabMap">
+            <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>
+            <span>LIVE MAP HUD</span>
+          </button>
+          <button class="nav-tab" data-tab="journeys" id="tabJourneys">
+            <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/></svg>
+            <span>JOURNEYS & REPLAY</span>
+          </button>
+          <button class="nav-tab" data-tab="learn" id="tabLearn">
+            <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            <span>CITY RECALL</span>
+          </button>
+          <button class="nav-tab" data-tab="settings" id="tabSettings">
+            <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            <span>SETTINGS</span>
+          </button>
+        </nav>
+      </header>
+
+      <!-- Main Dynamic Content Views Container -->
+      <main class="hud-main-viewport" id="mainViewport">
+        <!-- Section 1: Home Dashboard -->
+        <section class="screen-view active" id="viewHome">
+          <div class="home-container">
+            <!-- Hero Mission Center -->
+            <div class="home-hero-panel hud-bracket-panel">
+              <div class="hero-header-meta">
+                <span class="badge-hud">TACTICAL RECEPTOR • STANDALONE</span>
+                <span class="badge-time" id="liveClockDisplay">00:00:00 UTC</span>
+              </div>
+
+              <div class="hero-core-cta">
+                <div class="primary-fab-glow-anchor">
+                  <div class="fab-pulse-ring" id="fabPulseRing"></div>
+                  <button class="fab-launch-mission" id="btnHomeStartJourney" aria-label="Start Journey">
+                    <div class="fab-inner-content">
+                      <svg class="fab-play-icon" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                      <span class="fab-label" id="fabLabel">START<br/>JOURNEY</span>
+                    </div>
+                  </button>
+                </div>
+              </div>
+
+              <p class="hero-motto">
+                Record actual GPS routes • Learn key landmarks • Master your city's mental map
+              </p>
+
+              <!-- Mission Mode Actions -->
+              <div class="hero-action-row">
+                <button class="btn-hud-secondary" id="btnHomeExploreMap">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/></svg>
+                  <span>Explore Live Map</span>
+                </button>
+                <button class="btn-hud-primary" id="btnHomeSimulateWalk">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                  <span>⚡ Launch Virtual Walk Simulation</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- Active Recording Banner (when active) -->
+            <div class="active-mission-banner hud-bracket-panel" id="activeMissionBanner" style="display: none;">
+              <div class="banner-live-indicator">
+                <span class="status-dot-pulse live-pulse"></span>
+                <span class="banner-title text-cyan">MISSION RECORDING ACTIVE</span>
+              </div>
+              <div class="banner-metrics">
+                <span class="metric-readout" id="bannerDist">0.00 km</span>
+                <span class="metric-divider">/</span>
+                <span class="metric-readout" id="bannerDur">00:00</span>
+                <span class="metric-divider">/</span>
+                <span class="metric-readout" id="bannerPts">0 pts</span>
+              </div>
+              <button class="btn-hud-primary btn-sm" id="btnJumpToActiveHUD">OPEN HUD →</button>
+            </div>
+
+            <!-- Quick Telemetry Statistics Grid -->
+            <div class="hud-stats-grid">
+              <div class="stat-card hud-bracket-panel" id="cardStatJourneys">
+                <div class="stat-icon-wrapper">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                </div>
+                <div class="stat-data">
+                  <span class="stat-number text-cyan" id="statJourneysCount">0</span>
+                  <span class="stat-title">LOGGED JOURNEYS</span>
+                </div>
+              </div>
+
+              <div class="stat-card hud-bracket-panel" id="cardStatDistance">
+                <div class="stat-icon-wrapper">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/></svg>
+                </div>
+                <div class="stat-data">
+                  <span class="stat-number text-teal" id="statTotalDistance">0.0 km</span>
+                  <span class="stat-title">TOTAL DISTANCE</span>
+                </div>
+              </div>
+
+              <div class="stat-card hud-bracket-panel" id="cardStatLandmarks">
+                <div class="stat-icon-wrapper">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+                </div>
+                <div class="stat-data">
+                  <span class="stat-number text-amber" id="statLandmarksCount">0</span>
+                  <span class="stat-title">SAVED LANDMARKS</span>
+                </div>
+              </div>
+
+              <div class="stat-card hud-bracket-panel" id="cardStatRecallScore">
+                <div class="stat-icon-wrapper">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/></svg>
+                </div>
+                <div class="stat-data">
+                  <span class="stat-number text-violet" id="statRecallScore">0 XP</span>
+                  <span class="stat-title">CITY RECALL SCORE</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Recent Logged Journeys Section -->
+            <div class="recent-journeys-section">
+              <div class="section-header-bar">
+                <div class="section-title-wrap">
+                  <span class="bullet-cyan"></span>
+                  <h2 class="section-title">RECENT RECORDED ROUTES</h2>
+                </div>
+                <button class="link-btn" id="btnViewAllJourneys">View Library (ALL) →</button>
+              </div>
+
+              <div class="recent-journeys-list" id="homeRecentJourneysList">
+                <!-- Injected via JavaScript -->
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Section 2: Full-Screen Live Map HUD -->
+        <section class="screen-view" id="viewMap">
+          <div class="map-hud-container" id="mapHudContainer">
+            <!-- Map Stage Wrapper for 3D Tilt Perspective -->
+            <div class="map-perspective-stage" id="mapPerspectiveStage">
+              <div id="leafletMap" class="leaflet-map-canvas"></div>
+              <!-- Floating Radar Scanning Sweep -->
+              <div class="radar-scan-disc" id="radarScanDisc"></div>
+            </div>
+
+            <!-- Top Floating HUD Search & Controls Bar -->
+            <div class="map-top-hud">
+              <div class="search-locality-wrap hud-bracket-panel">
+                <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                <input type="text" id="mapSearchInput" class="search-input" placeholder="Search street, road, or area in your city..." autocomplete="off" />
+                <button class="search-clear-btn" id="btnSearchClear" style="display: none;">✕</button>
+                <div class="search-results-dropdown" id="searchResultsDropdown" style="display: none;"></div>
+              </div>
+
+              <!-- Map Control Toggles -->
+              <div class="map-toggles-cluster">
+                <button class="hud-toggle-btn active" id="btnToggleMapStyle" title="Switch Map Theme: Direct OSM / Cyberpunk / Esri Dark (Zero API Keys)">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>
+                  <span class="toggle-text" id="lblMapStyle">DIRECT OSM</span>
+                </button>
+                <button class="hud-toggle-btn" id="btnToggle3D" title="Toggle 3D Drone Perspective Tilt">
+                  <span class="toggle-badge">3D</span>
+                  <span class="toggle-text">TILT</span>
+                </button>
+                <button class="hud-toggle-btn active" id="btnToggleRadar" title="Toggle Radar Scanning Sweep">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 2a10 10 0 0 1 10 10"/></svg>
+                  <span class="toggle-text">RADAR</span>
+                </button>
+                <button class="hud-toggle-btn" id="btnToggleMeasure" title="Laser Straight-Line Distance Ruler">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="20" x2="20" y2="4"/><circle cx="4" cy="20" r="2"/><circle cx="20" cy="4" r="2"/></svg>
+                  <span class="toggle-text">LASER</span>
+                </button>
+                <button class="hud-toggle-btn" id="btnRecenterGPS" title="Lock View on Location">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="22" y1="12" x2="18" y2="12"/><line x1="6" y1="12" x2="2" y2="12"/><line x1="12" y1="6" x2="12" y2="2"/><line x1="12" y1="22" x2="12" y2="18"/></svg>
+                  <span class="toggle-text">GPS</span>
+                </button>
+                <button class="hud-toggle-btn" id="btnOpenLayersMenu" title="Open Public Maps Layer Selector">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
+                  <span class="toggle-text">LAYERS</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- Public Maps Layer Selector Modal / Card -->
+            <div class="map-layers-popover hud-bracket-panel" id="mapLayersPopover" style="display: none;">
+              <div class="layers-header">
+                <div class="layers-title-row">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="#00F5FF" stroke-width="2" style="width:18px;height:18px;"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
+                  <span class="layers-title">ACCURATE PUBLIC MAP PROVIDERS</span>
+                </div>
+                <button class="btn-icon-close" id="btnCloseLayersPopover">✕</button>
+              </div>
+              <p class="layers-subtitle">Curated from Public APIs repository • 100% Free • Zero API Keys • Zero Watermarks</p>
+              
+              <div class="layers-grid">
+                <button class="layer-option-card active" data-style="direct-osm">
+                  <div class="layer-badge-row">
+                    <span class="layer-name">🗺️ OpenStreetMap (Standard)</span>
+                    <span class="layer-tag tag-verified">RECOMMENDED</span>
+                  </div>
+                  <p class="layer-desc">Direct global cartography. High-resolution street names, building footprints, and neighborhood lanes.</p>
+                </button>
+
+                <button class="layer-option-card" data-style="osm-hot">
+                  <div class="layer-badge-row">
+                    <span class="layer-name">🏥 OSM Humanitarian (HOT)</span>
+                    <span class="layer-tag">HIGH CONTRAST</span>
+                  </div>
+                  <p class="layer-desc">Enhanced clarity and vibrant road contrast designed specifically for rapid ground navigation.</p>
+                </button>
+
+                <button class="layer-option-card" data-style="esri-streets">
+                  <div class="layer-badge-row">
+                    <span class="layer-name">🛣️ Esri World Street Map</span>
+                    <span class="layer-tag">COMMERCIAL GRADE</span>
+                  </div>
+                  <p class="layer-desc">Clean highway cartography, road numbers, transit corridors, and landmark labels.</p>
+                </button>
+
+                <button class="layer-option-card" data-style="esri-satellite">
+                  <div class="layer-badge-row">
+                    <span class="layer-name">🛰️ Esri Satellite + Hybrid Overlays</span>
+                    <span class="layer-tag tag-sat">PHOTO REAL</span>
+                  </div>
+                  <p class="layer-desc">High-resolution orbital satellite photography combined with boundary and street overlays.</p>
+                </button>
+
+                <button class="layer-option-card" data-style="esri-dark">
+                  <div class="layer-badge-row">
+                    <span class="layer-name">🌑 Esri Dark Gray Canvas</span>
+                    <span class="layer-tag">MINIMAL HUD</span>
+                  </div>
+                  <p class="layer-desc">Tactical dark gray basemap crafted for telemetry readouts and route tracking.</p>
+                </button>
+
+                <button class="layer-option-card" data-style="cyberpunk-osm">
+                  <div class="layer-badge-row">
+                    <span class="layer-name">🌌 Cyberpunk Tactical HUD</span>
+                    <span class="layer-tag tag-cyber">GLOW HUD</span>
+                  </div>
+                  <p class="layer-desc">High-contrast inverted OSM with glowing neon cyan and amber thoroughfares.</p>
+                </button>
+
+                <button class="layer-option-card" data-style="opentopo">
+                  <div class="layer-badge-row">
+                    <span class="layer-name">🏔️ OpenTopoMap (Topographic)</span>
+                    <span class="layer-tag">CONTOUR TERRAIN</span>
+                  </div>
+                  <p class="layer-desc">Elevation lines, hillshades, outdoor terrain contours, and geographical landmarks.</p>
+                </button>
+              </div>
+            </div>
+
+            <!-- Floating Laser Measurement Card (When Active) -->
+            <div class="measurement-hud-card hud-bracket-panel" id="measureResultCard" style="display: none;">
+              <div class="measure-card-header">
+                <span class="text-amber">⚡ LASER DISTANCE RULER</span>
+                <button class="btn-icon-close" id="btnCloseMeasureCard">✕</button>
+              </div>
+              <div class="measure-grid">
+                <div class="measure-item">
+                  <span class="m-label">DIRECT DISTANCE</span>
+                  <span class="m-val text-amber" id="measureDistVal">0 m</span>
+                </div>
+                <div class="measure-item">
+                  <span class="m-label">BEARING</span>
+                  <span class="m-val text-cyan" id="measureBearingVal">0°</span>
+                </div>
+                <div class="measure-item">
+                  <span class="m-label">WALK TIME</span>
+                  <span class="m-val text-white" id="measureWalkVal">0 mins</span>
+                </div>
+              </div>
+              <div class="measure-tip">Tap any 2 points on the map to measure straight-line distance.</div>
+            </div>
+
+            <!-- Current Locality & Street Name Badge -->
+            <div class="current-street-badge hud-bracket-panel" id="streetNameBadge">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+              <span id="currentStreetNameText">Acquiring locality coordinate lock...</span>
+            </div>
+
+            <!-- Bottom Tactical Tracking Dock -->
+            <div class="map-bottom-dock hud-bracket-panel" id="mapBottomDock">
+              <!-- Telemetry Readouts -->
+              <div class="dock-telemetry-row">
+                <div class="dock-telemetry-cell">
+                  <span class="cell-label">ELAPSED TIME</span>
+                  <span class="cell-value text-cyan" id="dockDuration">00:00:00</span>
+                </div>
+                <div class="dock-telemetry-cell">
+                  <span class="cell-label">DISTANCE</span>
+                  <span class="cell-value text-teal" id="dockDistance">0.00 km</span>
+                </div>
+                <div class="dock-telemetry-cell">
+                  <span class="cell-label">SPEED</span>
+                  <span class="cell-value text-white" id="dockSpeed">0.0 km/h</span>
+                </div>
+                <div class="dock-telemetry-cell">
+                  <span class="cell-label">POINTS</span>
+                  <span class="cell-value text-amber" id="dockPoints">0</span>
+                </div>
+              </div>
+
+              <!-- Primary Mission Actions Controls -->
+              <div class="dock-actions-row">
+                <button class="btn-dock-action btn-start" id="btnDockStart">
+                  <svg viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                  <span>START GPS</span>
+                </button>
+                <button class="btn-dock-action btn-demo" id="btnDockSimulate">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                  <span>SIMULATE WALK</span>
+                </button>
+                <button class="btn-dock-action btn-pause" id="btnDockPause" style="display: none;">
+                  <svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+                  <span>PAUSE</span>
+                </button>
+                <button class="btn-dock-action btn-resume" id="btnDockResume" style="display: none;">
+                  <svg viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                  <span>RESUME</span>
+                </button>
+                <button class="btn-dock-action btn-stop" id="btnDockStop" style="display: none;">
+                  <svg viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16"/></svg>
+                  <span>STOP & SAVE</span>
+                </button>
+                <button class="btn-dock-action btn-landmark" id="btnDockAddLandmark">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+                  <span>ADD LANDMARK</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Section 3: Journeys Library & Replay -->
+        <section class="screen-view" id="viewJourneys">
+          <div class="journeys-container">
+            <div class="library-header-bar">
+              <div>
+                <h1 class="library-page-title">JOURNEY LIBRARY & REPLAY</h1>
+                <p class="library-page-subtitle">Inspect your actual recorded GPS tracks with interactive timeline playback</p>
+              </div>
+              <div class="library-actions">
+                <button class="btn-hud-secondary btn-sm" id="btnSeedDemoJourneys">
+                  <span>+ Seed Demo Routes</span>
+                </button>
+                <button class="btn-hud-secondary btn-sm" id="btnExportDataJSON">
+                  <span>Export JSON</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- Replay Interactive HUD Theater (Visible when a journey is selected) -->
+            <div class="replay-theater-card hud-bracket-panel" id="replayTheater" style="display: none;">
+              <div class="replay-header">
+                <div>
+                  <span class="badge-hud">TIMELINE REPLAY ACTIVE</span>
+                  <h3 class="replay-journey-title" id="replayTitle">Journey Replay</h3>
+                  <p class="replay-meta" id="replayMeta">Recorded Trace • 0 pts</p>
+                </div>
+                <button class="btn-icon-close" id="btnCloseReplayTheater">✕</button>
+              </div>
+
+              <!-- Replay Map Viewport -->
+              <div class="replay-map-container" id="replayMapContainer">
+                <div id="replayLeafletMap" class="replay-leaflet-canvas"></div>
+              </div>
+
+              <!-- Interactive Timeline Scrubber & Player Controls -->
+              <div class="replay-controls-dock">
+                <div class="replay-player-row">
+                  <button class="btn-play-pause" id="btnReplayPlayPause">
+                    <svg id="replayPlayIcon" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                    <svg id="replayPauseIcon" viewBox="0 0 24 24" fill="currentColor" style="display: none;"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+                  </button>
+
+                  <div class="replay-slider-wrap">
+                    <input type="range" id="replayTimelineSlider" min="0" max="100" value="100" class="hud-slider" />
+                    <div class="replay-time-indicators">
+                      <span id="replayCurrentTime">00:00</span>
+                      <span id="replayPointIndex">Point 0 / 0</span>
+                      <span id="replayTotalTime">00:00</span>
+                    </div>
+                  </div>
+
+                  <div class="replay-speed-selector">
+                    <button class="btn-speed active" data-speed="1">1x</button>
+                    <button class="btn-speed" data-speed="2">2x</button>
+                    <button class="btn-speed" data-speed="4">4x</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Journeys Cards Grid -->
+            <div class="journeys-grid-list" id="journeysGridList">
+              <!-- Dynamically populated via JavaScript -->
+            </div>
+          </div>
+        </section>
+
+        <!-- Section 4: City Recall Arena (Learn) -->
+        <section class="screen-view" id="viewLearn">
+          <div class="learn-arena-container">
+            <div class="arena-header">
+              <span class="badge-hud">COGNITIVE SPATIAL TRAINING</span>
+              <h1 class="arena-title">CITY RECALL ARENA</h1>
+              <p class="arena-subtitle">Train your brain to navigate without looking at maps. Master street order, orientation, and distances.</p>
+            </div>
+
+            <!-- Mode Selector Switcher -->
+            <div class="quiz-mode-switcher hud-bracket-panel">
+              <button class="btn-mode-tab active" data-mode="sequence" id="modeSequence">
+                <span class="mode-num">01</span>
+                <span class="mode-title">SEQUENCE RECALL</span>
+              </button>
+              <button class="btn-mode-tab" data-mode="radar" id="modeRadar">
+                <span class="mode-num">02</span>
+                <span class="mode-title">STREET COMPASS RADAR</span>
+              </button>
+              <button class="btn-mode-tab" data-mode="distance" id="modeDistance">
+                <span class="mode-num">03</span>
+                <span class="mode-title">DISTANCE INTUITION</span>
+              </button>
+            </div>
+
+            <!-- Active Game Arena Board -->
+            <div class="arena-game-card hud-bracket-panel" id="arenaGameBoard">
+              <!-- Dynamically rendered quiz content -->
+            </div>
+          </div>
+        </section>
+
+        <!-- Section 5: Settings & Diagnostics -->
+        <section class="screen-view" id="viewSettings">
+          <div class="settings-container">
+            <h1 class="settings-title">HUD & SYSTEM SETTINGS</h1>
+
+            <div class="settings-group hud-bracket-panel">
+              <h3 class="group-title text-cyan">AESTHETICS & HOLOGRAPHIC EFFECTS</h3>
+              <div class="setting-item">
+                <div class="setting-info">
+                  <span class="s-label">Visual Effects Level</span>
+                  <span class="s-desc">Cinematic (full 3D tilt, radar sweeps, bloom glow) vs High Performance</span>
+                </div>
+                <select id="settingEffectsLevel" class="hud-select">
+                  <option value="cinematic" selected>Cinematic 3D HUD</option>
+                  <option value="balanced">Balanced</option>
+                  <option value="reduced">Reduced Effects (Battery Saver)</option>
+                </select>
+              </div>
+
+              <div class="setting-item">
+                <div class="setting-info">
+                  <span class="s-label">CRT Scanline Grid</span>
+                  <span class="s-desc">Overlay tactical sci-fi scanline mesh</span>
+                </div>
+                <input type="checkbox" id="settingScanlines" checked class="hud-checkbox" />
+              </div>
+
+              <div class="setting-item">
+                <div class="setting-info">
+                  <span class="s-label">Synthesizer Sound FX</span>
+                  <span class="s-desc">Futuristic audio beeps for mission status, clicks, and quiz feedback</span>
+                </div>
+                <input type="checkbox" id="settingAudio" checked class="hud-checkbox" />
+              </div>
+            </div>
+
+            <div class="settings-group hud-bracket-panel">
+              <h3 class="group-title text-teal">LOCAL DATA & STORAGE</h3>
+              <div class="setting-item">
+                <div class="setting-info">
+                  <span class="s-label">Clear All Local Data</span>
+                  <span class="s-desc">Reset local IndexedDB journey database and restore defaults</span>
+                </div>
+                <button class="btn-danger-hud" id="btnClearDatabase">Reset Local DB</button>
+              </div>
+            </div>
+
+            <div class="settings-group hud-bracket-panel">
+              <h3 class="group-title text-amber">PRODUCT SPECIFICATION & PRIVACY</h3>
+              <p class="s-desc" style="line-height: 1.6;">
+                PathWise is an open-source, privacy-first personal navigation assistant. All coordinates and routes remain strictly inside your browser's local database. No location data is ever transmitted to commercial advertising clouds.
+              </p>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <!-- Mobile Bottom Navigation Dock (For Smartphones) -->
+      <nav class="hud-nav-mobile" aria-label="Mobile Navigation">
+        <button class="mob-tab active" data-tab="home">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+          <span>Home</span>
+        </button>
+        <button class="mob-tab" data-tab="map">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/></svg>
+          <span>Map HUD</span>
+        </button>
+        <button class="mob-tab" data-tab="journeys">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/></svg>
+          <span>Journeys</span>
+        </button>
+        <button class="mob-tab" data-tab="learn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/></svg>
+          <span>Recall</span>
+        </button>
+        <button class="mob-tab" data-tab="settings">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          <span>Settings</span>
+        </button>
+      </nav>
+
+      <!-- Add Landmark Modal Dialog -->
+      <div class="hud-modal-backdrop" id="landmarkModal" style="display: none;">
+        <div class="hud-modal-card hud-bracket-panel">
+          <div class="modal-header">
+            <span class="text-cyan">📍 SAVE PERSONAL LANDMARK</span>
+            <button class="btn-icon-close" id="btnCloseLandmarkModal">✕</button>
+          </div>
+          <form id="formAddLandmark" class="modal-form">
+            <div class="form-group">
+              <label for="landmarkNameInput">Landmark Name *</label>
+              <input type="text" id="landmarkNameInput" required class="hud-input" placeholder="e.g. Metro Station Gate 2, Corner Bakery, City Library" />
+            </div>
+            <div class="form-group">
+              <label for="landmarkCategoryInput">Category</label>
+              <select id="landmarkCategoryInput" class="hud-select">
+                <option value="Transit">Transit / Station</option>
+                <option value="Food">Food / Cafe</option>
+                <option value="Civic">Civic / Landmark</option>
+                <option value="Intersection">Intersection / Turning</option>
+                <option value="Shop">Shop / Retail</option>
+                <option value="Other">Other Personal Note</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="landmarkNotesInput">Notes / Memory Prompt</label>
+              <textarea id="landmarkNotesInput" class="hud-textarea" rows="2" placeholder="e.g. Red brick facade opposite the clock tower."></textarea>
+            </div>
+            <div class="form-row-coords">
+              <span class="coord-label" id="modalCoordLabel">LAT: 0.0000 • LON: 0.0000</span>
+            </div>
+            <div class="modal-actions">
+              <button type="button" class="btn-hud-secondary" id="btnCancelLandmark">Cancel</button>
+              <button type="submit" class="btn-hud-primary">Save to Memory</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <!-- Application Script -->
+    <script type="module" src="./src/main.js"></script>
+  </body>
+</html>

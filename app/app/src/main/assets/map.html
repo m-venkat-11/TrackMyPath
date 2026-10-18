@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <link rel="stylesheet" href="leaflet/leaflet.css" />
+    <script src="leaflet/leaflet.js"></script>
+    <style>
+        * {
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+        }
+        html, body {
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            padding: 0;
+            background: #050D1A;
+            overflow: hidden;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace;
+        }
+
+        #map-stage {
+            width: 100%;
+            height: 100%;
+            perspective: 850px;
+            perspective-origin: center 70%;
+            overflow: hidden;
+            background: #050D1A;
+        }
+
+        #map {
+            width: 100%;
+            height: 100%;
+            background: #050D1A !important;
+            transition: transform 0.65s cubic-bezier(0.2, 0.9, 0.2, 1);
+            transform-origin: center bottom;
+        }
+
+        /* 3D Sci-Fi Tactical Tilt Perspective */
+        .tactical-3d #map {
+            transform: rotateX(28deg) scale(1.08) translateY(-4%);
+        }
+
+        /* Direct Clear OSM Basemap */
+        .leaflet-tile-pane {
+            filter: none !important;
+        }
+
+        .leaflet-container {
+            background: #F8FAFC !important;
+        }
+
+        /* Sci-Fi Radar Scanning Sweep Overlay */
+        .radar-sweep-overlay {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 320px;
+            height: 320px;
+            margin-top: -160px;
+            margin-left: -160px;
+            border-radius: 50%;
+            border: 1px solid rgba(0, 229, 255, 0.15);
+            background: conic-gradient(from 0deg, rgba(0, 229, 255, 0.12) 0deg, transparent 60deg, transparent 360deg);
+            pointer-events: none;
+            z-index: 450;
+            animation: radar-sweep-anim 4s linear infinite;
+            display: none;
+        }
+        .radar-active .radar-sweep-overlay {
+            display: block;
+        }
+        @keyframes radar-sweep-anim {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
+        /* Pulsing user location beacon */
+        .user-beacon-container {
+            position: relative;
+            width: 22px;
+            height: 22px;
+        }
+        .user-beacon-dot {
+            width: 14px;
+            height: 14px;
+            background: #00E5FF;
+            border: 2px solid #FFFFFF;
+            border-radius: 50%;
+            box-shadow: 0 0 12px #00E5FF, 0 0 24px #00E5FF;
+            position: absolute;
+            top: 4px;
+            left: 4px;
+            z-index: 2;
+        }
+        .user-beacon-pulse {
+            width: 44px;
+            height: 44px;
+            border: 2px solid #00E5FF;
+            border-radius: 50%;
+            position: absolute;
+            top: -11px;
+            left: -11px;
+            animation: beacon-pulse-anim 1.8s infinite ease-out;
+            pointer-events: none;
+            z-index: 1;
+        }
+        @keyframes beacon-pulse-anim {
+            0% { transform: scale(0.3); opacity: 0.95; }
+            100% { transform: scale(1.6); opacity: 0.0; }
+        }
+
+        /* Holographic Landmark pin */
+        .holo-landmark-pin {
+            width: 20px;
+            height: 20px;
+            background: #7C4DFF;
+            border: 2px solid #00E5FF;
+            border-radius: 50%;
+            box-shadow: 0 0 10px #7C4DFF, 0 0 20px rgba(124, 77, 255, 0.7);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+        }
+        .holo-landmark-core {
+            width: 6px;
+            height: 6px;
+            background: #FFFFFF;
+            border-radius: 50%;
+        }
+
+        /* Measurement Point Pins */
+        .measure-pin {
+            width: 14px;
+            height: 14px;
+            background: #FFAB00;
+            border: 2px solid #FFFFFF;
+            border-radius: 50%;
+            box-shadow: 0 0 10px #FFAB00;
+        }
+
+        /* Custom Holographic Popups */
+        .leaflet-popup-content-wrapper {
+            background: rgba(13, 27, 46, 0.95) !important;
+            color: #F0F8FF !important;
+            border: 1px solid #00E5FF !important;
+            border-radius: 14px !important;
+            box-shadow: 0 0 20px rgba(0, 229, 255, 0.3) !important;
+            font-size: 13px !important;
+            padding: 4px 6px !important;
+        }
+        .leaflet-popup-tip {
+            background: rgba(13, 27, 46, 0.95) !important;
+            border: 1px solid #00E5FF !important;
+        }
+        .holo-popup-title {
+            font-weight: bold;
+            color: #00E5FF;
+            font-size: 14px;
+            margin-bottom: 2px;
+        }
+        .holo-popup-cat {
+            color: #8EACBD;
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.6px;
+            margin-bottom: 4px;
+        }
+        .holo-popup-notes {
+            color: #F0F8FF;
+            font-size: 12px;
+            line-height: 1.3;
+        }
+
+        /* Attribution styling */
+        .leaflet-control-attribution {
+            background: rgba(5, 13, 26, 0.8) !important;
+            color: #8EACBD !important;
+            font-size: 9px !important;
+            border-top-left-radius: 8px;
+            padding: 2px 6px !important;
+        }
+        .leaflet-control-attribution a {
+            color: #00BCD4 !important;
+            text-decoration: none;
+        }
+
+        .leaflet-control-zoom {
+            display: none !important;
+        }
+    </style>
+</head>
+<body>
+    <div id="map-stage">
+        <div id="map"></div>
+        <div class="radar-sweep-overlay" id="radarSweep"></div>
+    </div>
+
+    <script>
+        var defaultLat = 12.9716;
+        var defaultLon = 77.5946;
+        var defaultZoom = 15;
+
+        var map = L.map('map', {
+            center: [defaultLat, defaultLon],
+            zoom: defaultZoom,
+            zoomControl: false,
+            attributionControl: true
+        });
+
+        // 100% Direct Accurate OpenStreetMap (Zero API key required, zero watermarks)
+        var mapTiles = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+            maxZoom: 19,
+            minZoom: 3
+        }).addTo(map);
+
+        // Layers
+        var routeHalo = null;
+        var routeCore = null;
+        var userMarker = null;
+        var accuracyCircle = null;
+        var landmarksLayer = L.layerGroup().addTo(map);
+
+        // Distance Measurement Layer
+        var measurePoints = [];
+        var measureMarkers = [];
+        var measurePolyline = null;
+        var isMeasureMode = false;
+
+        var userIcon = L.divIcon({
+            className: 'custom-user-beacon',
+            html: '<div class="user-beacon-container"><div class="user-beacon-dot"></div><div class="user-beacon-pulse"></div></div>',
+            iconSize: [22, 22],
+            iconAnchor: [11, 11]
+        });
+
+        function createLandmarkIcon() {
+            return L.divIcon({
+                className: 'custom-holo-landmark',
+                html: '<div class="holo-landmark-pin"><div class="holo-landmark-core"></div></div>',
+                iconSize: [20, 20],
+                iconAnchor: [10, 10]
+            });
+        }
+
+        function createMeasureIcon() {
+            return L.divIcon({
+                className: 'custom-measure-pin',
+                html: '<div class="measure-pin"></div>',
+                iconSize: [14, 14],
+                iconAnchor: [7, 7]
+            });
+        }
+
+        // Tap listener
+        map.on('click', function(e) {
+            var lat = e.latlng.lat;
+            var lon = e.latlng.lng;
+
+            if (isMeasureMode) {
+                handleMeasurementClick(lat, lon);
+            } else {
+                if (window.AndroidBridge && window.AndroidBridge.onMapClicked) {
+                    window.AndroidBridge.onMapClicked(lat, lon);
+                }
+            }
+        });
+
+        function handleMeasurementClick(lat, lon) {
+            if (measurePoints.length >= 2) {
+                clearMeasurement();
+            }
+
+            measurePoints.push([lat, lon]);
+            var marker = L.marker([lat, lon], { icon: createMeasureIcon() }).addTo(map);
+            measureMarkers.push(marker);
+
+            if (measurePoints.length === 2) {
+                // Draw neon dashed laser ruler
+                measurePolyline = L.polyline(measurePoints, {
+                    color: '#FFAB00',
+                    weight: 3.5,
+                    dashArray: '8, 8',
+                    opacity: 0.95
+                }).addTo(map);
+
+                // Calculate Haversine & Azimuth
+                var p1 = measurePoints[0];
+                var p2 = measurePoints[1];
+                var distMeters = calculateHaversine(p1[0], p1[1], p2[0], p2[1]);
+                var bearingDeg = calculateBearing(p1[0], p1[1], p2[0], p2[1]);
+                var walkingMins = Math.round(distMeters / 83.3); // 5km/h
+
+                if (window.AndroidBridge && window.AndroidBridge.onMeasurementCalculated) {
+                    window.AndroidBridge.onMeasurementCalculated(distMeters, bearingDeg, walkingMins, p1[0], p1[1], p2[0], p2[1]);
+                }
+            }
+        }
+
+        function clearMeasurement() {
+            measurePoints = [];
+            measureMarkers.forEach(function(m) { map.removeLayer(m); });
+            measureMarkers = [];
+            if (measurePolyline) {
+                map.removeLayer(measurePolyline);
+                measurePolyline = null;
+            }
+        }
+
+        function calculateHaversine(lat1, lon1, lat2, lon2) {
+            var R = 6371000; // meters
+            var dLat = (lat2 - lat1) * Math.PI / 180;
+            var dLon = (lon2 - lon1) * Math.PI / 180;
+            var a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+            var c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+            return R * c;
+        }
+
+        function calculateBearing(lat1, lon1, lat2, lon2) {
+            var y = Math.sin((lon2 - lon1) * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180);
+            var x = Math.cos(lat1 * Math.PI / 180) * Math.sin(lat2 * Math.PI / 180) -
+                    Math.sin(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.cos((lon2 - lon1) * Math.PI / 180);
+            var brng = Math.atan2(y, x) * 180 / Math.PI;
+            return Math.round((brng + 360) % 360);
+        }
+
+        // ── Callable API from Android Kotlin ─────────────────────────────────────
+
+        function updateUserLocation(lat, lon, accuracy, autoPan) {
+            var latLng = [lat, lon];
+            if (!userMarker) {
+                userMarker = L.marker(latLng, { icon: userIcon, zIndexOffset: 1000 }).addTo(map);
+            } else {
+                userMarker.setLatLng(latLng);
+            }
+
+            if (accuracy && accuracy > 0) {
+                if (!accuracyCircle) {
+                    accuracyCircle = L.circle(latLng, {
+                        radius: accuracy,
+                        color: '#00E5FF',
+                        weight: 1,
+                        opacity: 0.35,
+                        fillColor: '#00E5FF',
+                        fillOpacity: 0.08
+                    }).addTo(map);
+                } else {
+                    accuracyCircle.setLatLng(latLng);
+                    accuracyCircle.setRadius(accuracy);
+                }
+            } else if (accuracyCircle) {
+                map.removeLayer(accuracyCircle);
+                accuracyCircle = null;
+            }
+
+            if (autoPan) {
+                map.setView(latLng, Math.max(map.getZoom(), 16));
+            }
+        }
+
+        function setRoutePoints(pointsJson) {
+            try {
+                var coords = JSON.parse(pointsJson);
+                if (routeHalo) map.removeLayer(routeHalo);
+                if (routeCore) map.removeLayer(routeCore);
+
+                if (coords.length >= 2) {
+                    routeHalo = L.polyline(coords, {
+                        color: '#00E5FF',
+                        weight: 8,
+                        opacity: 0.3,
+                        lineCap: 'round',
+                        lineJoin: 'round'
+                    }).addTo(map);
+
+                    routeCore = L.polyline(coords, {
+                        color: '#00E5FF',
+                        weight: 3.5,
+                        opacity: 1.0,
+                        lineCap: 'round',
+                        lineJoin: 'round'
+                    }).addTo(map);
+                }
+            } catch (e) {
+                console.error("Failed to parse route points", e);
+            }
+        }
+
+        function setLandmarks(landmarksJson) {
+            try {
+                var items = JSON.parse(landmarksJson);
+                landmarksLayer.clearLayers();
+
+                items.forEach(function(lm) {
+                    var marker = L.marker([lm.latitude, lm.longitude], {
+                        icon: createLandmarkIcon()
+                    });
+
+                    var popupContent = '<div class="holo-popup-title">' + (lm.name || 'Landmark') + '</div>';
+                    if (lm.category) {
+                        popupContent += '<div class="holo-popup-cat">' + lm.category + '</div>';
+                    }
+                    if (lm.notes) {
+                        popupContent += '<div class="holo-popup-notes">' + lm.notes + '</div>';
+                    }
+
+                    marker.bindPopup(popupContent);
+                    landmarksLayer.addLayer(marker);
+                });
+            } catch (e) {
+                console.error("Failed to parse landmarks", e);
+            }
+        }
+
+        function recenterTo(lat, lon, zoom) {
+            map.flyTo([lat, lon], zoom || 16, { duration: 0.8 });
+        }
+
+        function toggle3DMode(enabled) {
+            var stage = document.getElementById('map-stage');
+            if (enabled) {
+                stage.classList.add('tactical-3d');
+            } else {
+                stage.classList.remove('tactical-3d');
+            }
+        }
+
+        function toggleRadarSweep(enabled) {
+            var stage = document.getElementById('map-stage');
+            if (enabled) {
+                stage.classList.add('radar-active');
+            } else {
+                stage.classList.remove('radar-active');
+            }
+        }
+
+        function setMeasureMode(enabled) {
+            isMeasureMode = enabled;
+            if (!enabled) {
+                clearMeasurement();
+            }
+        }
+
+        function setMapProvider(provider) {
+            if (mapTiles) {
+                map.removeLayer(mapTiles);
+            }
+            if (window.overlayTiles) {
+                map.removeLayer(window.overlayTiles);
+                window.overlayTiles = null;
+            }
+
+            if (provider === 'osm-hot') {
+                mapTiles = L.tileLayer('https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png', {
+                    subdomains: ['a', 'b', 'c'],
+                    maxZoom: 19
+                }).addTo(map);
+            } else if (provider === 'esri-streets') {
+                mapTiles = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {
+                    maxZoom: 19
+                }).addTo(map);
+            } else if (provider === 'esri-satellite') {
+                mapTiles = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+                    maxZoom: 19
+                }).addTo(map);
+                window.overlayTiles = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', {
+                    maxZoom: 19
+                }).addTo(map);
+            } else if (provider === 'esri-dark') {
+                mapTiles = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
+                    maxZoom: 16
+                }).addTo(map);
+            } else if (provider === 'opentopo') {
+                mapTiles = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
+                    subdomains: ['a', 'b', 'c'],
+                    maxZoom: 17
+                }).addTo(map);
+            } else {
+                mapTiles = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    maxZoom: 19
+                }).addTo(map);
+            }
+
+            if (landmarksLayer) landmarksLayer.bringToFront();
+            if (routeHalo) routeHalo.bringToFront();
+            if (routeCore) routeCore.bringToFront();
+        }
+
+        setTimeout(function() {
+            if (window.AndroidBridge && window.AndroidBridge.onMapReady) {
+                window.AndroidBridge.onMapReady();
+            }
+        }, 150);
+    </script>
+</body>
+</html>

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- PathWise always uses a dark window background so Compose renders
+         the holographic midnight-navy colour before the first Compose frame. -->
+    <style name="Theme.PathWise" parent="@android:style/Theme.Material.NoActionBar">
+        <item name="android:windowBackground">#FF050D1A</item>
+    </style>
+</resources>
