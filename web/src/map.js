@@ -32,17 +32,19 @@ export class HolographicMapController {
     this.map = L.map(this.containerId, {
       center,
       zoom,
+      minZoom: 2,
+      maxZoom: 22,
       zoomControl: false,
       attributionControl: true
     });
 
     this.currentTileLayers = [];
-    this.currentStyle = 'direct-osm'; // 'direct-osm', 'esri-dark', 'cyberpunk-osm'
+    this.currentStyle = 'google-streets';
 
     this.landmarksLayer = L.layerGroup().addTo(this.map);
 
-    // Initialise with 100% Direct Accurate OpenStreetMap (Zero API key required)
-    this.setMapStyle('direct-osm');
+    // Initialise with 100% Direct Accurate Google Maps (Zero API key required, razor-sharp deep zoom)
+    this.setMapStyle('google-streets');
 
     // Map Click Listener
     this.map.on('click', (e) => {
@@ -213,7 +215,7 @@ export class HolographicMapController {
     this.measurePoints = [];
   }
 
-  setMapStyle(styleName = 'direct-osm') {
+  setMapStyle(styleName = 'google-streets') {
     if (!this.map) return;
     this.currentStyle = styleName;
 
@@ -228,6 +230,9 @@ export class HolographicMapController {
     const container = this.map.getContainer();
     if (container) {
       container.classList.remove(
+        'map-style-google-streets',
+        'map-style-google-hybrid',
+        'map-style-google-terrain',
         'map-style-direct',
         'map-style-hot',
         'map-style-esri-streets',
@@ -238,42 +243,66 @@ export class HolographicMapController {
       );
     }
 
-    if (styleName === 'osm-hot') {
+    if (styleName === 'google-hybrid') {
+      if (container) container.classList.add('map-style-google-hybrid');
+      const googleHybrid = L.tileLayer('https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
+        attribution: '&copy; Google Maps Hybrid',
+        subdomains: ['0', '1', '2', '3'],
+        maxZoom: 22,
+        maxNativeZoom: 20
+      }).addTo(this.map);
+      this.currentTileLayers.push(googleHybrid);
+    } else if (styleName === 'google-terrain') {
+      if (container) container.classList.add('map-style-google-terrain');
+      const googleTerrain = L.tileLayer('https://mt{s}.google.com/vt/lyrs=p&x={x}&y={y}&z={z}', {
+        attribution: '&copy; Google Maps Terrain',
+        subdomains: ['0', '1', '2', '3'],
+        maxZoom: 22,
+        maxNativeZoom: 20
+      }).addTo(this.map);
+      this.currentTileLayers.push(googleTerrain);
+    } else if (styleName === 'osm-hot') {
       if (container) container.classList.add('map-style-hot');
       const hot = L.tileLayer('https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png', {
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, <a href="https://www.hotosm.org/">HOT</a>',
         subdomains: ['a', 'b', 'c'],
-        maxZoom: 19
+        maxZoom: 22,
+        maxNativeZoom: 19
       }).addTo(this.map);
       this.currentTileLayers.push(hot);
     } else if (styleName === 'esri-streets') {
       if (container) container.classList.add('map-style-esri-streets');
       const esriStreet = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {
         attribution: 'Tiles &copy; Esri &mdash; Source: Esri, DeLorme, NAVTEQ',
-        maxZoom: 19
+        maxZoom: 22,
+        maxNativeZoom: 19
       }).addTo(this.map);
       this.currentTileLayers.push(esriStreet);
     } else if (styleName === 'esri-satellite') {
       if (container) container.classList.add('map-style-esri-sat');
       const sat = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
         attribution: 'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS',
-        maxZoom: 19
+        maxZoom: 22,
+        maxNativeZoom: 19
       }).addTo(this.map);
       const labels = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', {
         attribution: '',
-        maxZoom: 19
+        maxZoom: 22,
+        maxNativeZoom: 19
       }).addTo(this.map);
       this.currentTileLayers.push(sat, labels);
     } else if (styleName === 'esri-dark') {
       if (container) container.classList.add('map-style-esri-dark');
       const base = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
         attribution: 'Tiles &copy; Esri &mdash; Esri, DeLorme, NAVTEQ',
-        maxZoom: 16
+        maxZoom: 22,
+        maxNativeZoom: 16
       }).addTo(this.map);
 
       const ref = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}', {
         attribution: '',
-        maxZoom: 16
+        maxZoom: 22,
+        maxNativeZoom: 16
       }).addTo(this.map);
 
       this.currentTileLayers.push(base, ref);
@@ -282,25 +311,37 @@ export class HolographicMapController {
       const topo = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
         attribution: 'Map: &copy; <a href="https://www.openstreetmap.org/copyright">OSM</a>, SRTM | Style: &copy; <a href="https://opentopomap.org">OpenTopoMap</a>',
         subdomains: ['a', 'b', 'c'],
-        maxZoom: 17
+        maxZoom: 22,
+        maxNativeZoom: 17
       }).addTo(this.map);
       this.currentTileLayers.push(topo);
     } else if (styleName === 'cyberpunk-osm') {
       if (container) container.classList.add('map-style-cyberpunk');
       const osm = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-        maxZoom: 19
+        maxZoom: 22,
+        maxNativeZoom: 19
       }).addTo(this.map);
       this.currentTileLayers.push(osm);
-    } else {
-      // Default: 'direct-osm' (100% Accurate Direct Street & Road Map, crystal clear, zero API key)
-      this.currentStyle = 'direct-osm';
+    } else if (styleName === 'direct-osm') {
       if (container) container.classList.add('map-style-direct');
       const osm = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-        maxZoom: 19
+        maxZoom: 22,
+        maxNativeZoom: 19
       }).addTo(this.map);
       this.currentTileLayers.push(osm);
+    } else {
+      // Default: 'google-streets' (100% Crisp, Authentic Google Maps with razor-sharp zoom)
+      this.currentStyle = 'google-streets';
+      if (container) container.classList.add('map-style-google-streets');
+      const googleStreets = L.tileLayer('https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {
+        attribution: '&copy; Google Maps',
+        subdomains: ['0', '1', '2', '3'],
+        maxZoom: 22,
+        maxNativeZoom: 21
+      }).addTo(this.map);
+      this.currentTileLayers.push(googleStreets);
     }
 
     // Bring visual overlays to front
@@ -317,10 +358,12 @@ export class HolographicMapController {
 
   toggleNextMapStyle() {
     const cycle = [
+      'google-streets',
+      'google-hybrid',
+      'google-terrain',
       'direct-osm',
       'osm-hot',
       'esri-streets',
-      'esri-satellite',
       'esri-dark',
       'cyberpunk-osm',
       'opentopo'

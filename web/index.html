@@ -85,41 +85,116 @@
 
       <!-- Main Dynamic Content Views Container -->
       <main class="hud-main-viewport" id="mainViewport">
-        <!-- Section 1: Home Dashboard -->
+        <!-- Section 1: Home Dashboard (Tactical Holographic Mission Control) -->
         <section class="screen-view active" id="viewHome">
           <div class="home-container">
-            <!-- Hero Mission Center -->
+            <!-- Holographic Ambient Constellation & Radar Canvas -->
+            <canvas id="homeHoloGridCanvas" class="home-holo-canvas"></canvas>
+
+            <!-- Hero Mission Command Bridge -->
             <div class="home-hero-panel hud-bracket-panel">
               <div class="hero-header-meta">
-                <span class="badge-hud">TACTICAL RECEPTOR • STANDALONE</span>
-                <span class="badge-time" id="liveClockDisplay">00:00:00 UTC</span>
+                <div class="gnss-status-cluster">
+                  <span class="status-dot-pulse live-pulse"></span>
+                  <span class="badge-hud">GNSS RECEPTOR: 16 SVs LOCKED</span>
+                  <span class="gnss-bars">
+                    <span class="bar active"></span>
+                    <span class="bar active"></span>
+                    <span class="bar active"></span>
+                    <span class="bar active"></span>
+                  </span>
+                </div>
+                <div class="meta-right-pills">
+                  <span class="badge-hud badge-precision">RTK ±1.2m PRECISION</span>
+                  <span class="badge-time" id="liveClockDisplay">00:00:00 UTC</span>
+                </div>
               </div>
 
+              <!-- Gyroscopic Hologram Reactor Core -->
               <div class="hero-core-cta">
-                <div class="primary-fab-glow-anchor">
+                <div class="gyro-reactor-anchor">
+                  <!-- Outer Rotating Compass Ring with Ticks -->
+                  <div class="gyro-ring-outer">
+                    <span class="gyro-cardinal gyro-n">N</span>
+                    <span class="gyro-cardinal gyro-e">E</span>
+                    <span class="gyro-cardinal gyro-s">S</span>
+                    <span class="gyro-cardinal gyro-w">W</span>
+                  </div>
+                  <!-- Middle Rotating Sci-Fi Segment Ring -->
+                  <div class="gyro-ring-middle"></div>
+                  <!-- Glowing Pulse Waves -->
                   <div class="fab-pulse-ring" id="fabPulseRing"></div>
+                  <div class="fab-pulse-ring-delayed"></div>
+                  
+                  <!-- Main Interactive Reactor Launch Core -->
                   <button class="fab-launch-mission" id="btnHomeStartJourney" aria-label="Start Journey">
                     <div class="fab-inner-content">
+                      <div class="reactor-reticle"></div>
                       <svg class="fab-play-icon" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-                      <span class="fab-label" id="fabLabel">START<br/>JOURNEY</span>
+                      <span class="fab-label" id="fabLabel">START<br/>MISSION</span>
                     </div>
                   </button>
                 </div>
               </div>
 
+              <!-- Locality Coordinate Telemetry Ticker -->
+              <div class="hero-locality-ticker">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="ticker-pin-icon"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+                <span class="ticker-locality-name" id="homeDetectedLocality">BANGALORE CENTRAL SECTOR</span>
+                <span class="ticker-divider">•</span>
+                <span class="ticker-coords" id="homeDetectedCoords">12.9716° N, 77.5946° E</span>
+                <span class="ticker-divider">•</span>
+                <span class="ticker-badge">GPS READY</span>
+              </div>
+
               <p class="hero-motto">
-                Record actual GPS routes • Learn key landmarks • Master your city's mental map
+                High-definition live tracking • Spatial mental mapping • Zero-API-key Google Maps & City Recall
               </p>
 
-              <!-- Mission Mode Actions -->
-              <div class="hero-action-row">
-                <button class="btn-hud-secondary" id="btnHomeExploreMap">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/></svg>
-                  <span>Explore Live Map</span>
+              <!-- Tactical 4-Module Quick Launch Matrix -->
+              <div class="command-modules-grid">
+                <button class="cmd-module-card" id="btnHomeExploreMap">
+                  <div class="cmd-module-icon-wrap">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>
+                  </div>
+                  <div class="cmd-module-info">
+                    <span class="cmd-module-title">LIVE MAP HUD</span>
+                    <span class="cmd-module-desc">Google Maps HD Streets, 3D Tilt Drone Mode & Laser Ruler</span>
+                  </div>
+                  <span class="cmd-module-arrow">→</span>
                 </button>
-                <button class="btn-hud-primary" id="btnHomeSimulateWalk">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
-                  <span>⚡ Launch Virtual Walk Simulation</span>
+
+                <button class="cmd-module-card cmd-primary" id="btnHomeSimulateWalk">
+                  <div class="cmd-module-icon-wrap">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                  </div>
+                  <div class="cmd-module-info">
+                    <span class="cmd-module-title">VIRTUAL WALK SIMULATOR</span>
+                    <span class="cmd-module-desc">Autonomously stream GPS breadcrumbs through city landmarks</span>
+                  </div>
+                  <span class="cmd-module-arrow">⚡</span>
+                </button>
+
+                <button class="cmd-module-card" id="btnHomeLaunchArena">
+                  <div class="cmd-module-icon-wrap">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                  </div>
+                  <div class="cmd-module-info">
+                    <span class="cmd-module-title">CITY RECALL ARENA</span>
+                    <span class="cmd-module-desc">Train mental cognitive maps with 3 tactical recall modes</span>
+                  </div>
+                  <span class="cmd-module-arrow">→</span>
+                </button>
+
+                <button class="cmd-module-card" id="btnHomeLaunchCompass">
+                  <div class="cmd-module-icon-wrap">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></svg>
+                  </div>
+                  <div class="cmd-module-info">
+                    <span class="cmd-module-title">360° RADAR COMPASS</span>
+                    <span class="cmd-module-desc">Lock cardinal azimuth angles to surrounding waypoints</span>
+                  </div>
+                  <span class="cmd-module-arrow">→</span>
                 </button>
               </div>
             </div>
@@ -140,6 +215,27 @@
               <button class="btn-hud-primary btn-sm" id="btnJumpToActiveHUD">OPEN HUD →</button>
             </div>
 
+            <!-- Spatial Mental Mastery & XP Rank Panel -->
+            <div class="mastery-rank-card hud-bracket-panel">
+              <div class="mastery-header-row">
+                <div class="mastery-title-group">
+                  <span class="mastery-badge">SPATIAL MENTAL MASTERY</span>
+                  <h3 class="mastery-rank-title" id="homeRankTitle">EXPLORER GRADE II</h3>
+                </div>
+                <div class="mastery-score-pill">
+                  <span class="text-violet" id="homeMasteryXP">0 XP</span>
+                  <span class="streak-badge">🔥 7-DAY STREAK</span>
+                </div>
+              </div>
+              <div class="xp-bar-track">
+                <div class="xp-bar-fill" id="homeXpFill" style="width: 48%;"></div>
+              </div>
+              <div class="xp-bar-labels">
+                <span>Current: Grade II</span>
+                <span class="text-muted" id="homeXpNeeded">160 XP to Cartographer Grade III</span>
+              </div>
+            </div>
+
             <!-- Quick Telemetry Statistics Grid -->
             <div class="hud-stats-grid">
               <div class="stat-card hud-bracket-panel" id="cardStatJourneys">
@@ -148,7 +244,7 @@
                 </div>
                 <div class="stat-data">
                   <span class="stat-number text-cyan" id="statJourneysCount">0</span>
-                  <span class="stat-title">LOGGED JOURNEYS</span>
+                  <span class="stat-title">LOGGED MISSIONS</span>
                 </div>
               </div>
 
@@ -158,7 +254,7 @@
                 </div>
                 <div class="stat-data">
                   <span class="stat-number text-teal" id="statTotalDistance">0.0 km</span>
-                  <span class="stat-title">TOTAL DISTANCE</span>
+                  <span class="stat-title">TRAVERSED DISTANCE</span>
                 </div>
               </div>
 
@@ -168,7 +264,7 @@
                 </div>
                 <div class="stat-data">
                   <span class="stat-number text-amber" id="statLandmarksCount">0</span>
-                  <span class="stat-title">SAVED LANDMARKS</span>
+                  <span class="stat-title">PINNED LANDMARKS</span>
                 </div>
               </div>
 
@@ -178,7 +274,7 @@
                 </div>
                 <div class="stat-data">
                   <span class="stat-number text-violet" id="statRecallScore">0 XP</span>
-                  <span class="stat-title">CITY RECALL SCORE</span>
+                  <span class="stat-title">SPATIAL PRECISION</span>
                 </div>
               </div>
             </div>
@@ -188,9 +284,9 @@
               <div class="section-header-bar">
                 <div class="section-title-wrap">
                   <span class="bullet-cyan"></span>
-                  <h2 class="section-title">RECENT RECORDED ROUTES</h2>
+                  <h2 class="section-title">TACTICAL MISSION LOGS</h2>
                 </div>
-                <button class="link-btn" id="btnViewAllJourneys">View Library (ALL) →</button>
+                <button class="link-btn" id="btnViewAllJourneys">View Complete Archive →</button>
               </div>
 
               <div class="recent-journeys-list" id="homeRecentJourneysList">
@@ -221,9 +317,9 @@
 
               <!-- Map Control Toggles -->
               <div class="map-toggles-cluster">
-                <button class="hud-toggle-btn active" id="btnToggleMapStyle" title="Switch Map Theme: Direct OSM / Cyberpunk / Esri Dark (Zero API Keys)">
+                <button class="hud-toggle-btn active" id="btnToggleMapStyle" title="Switch Map Theme">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>
-                  <span class="toggle-text" id="lblMapStyle">DIRECT OSM</span>
+                  <span class="toggle-text" id="lblMapStyle">GOOGLE MAPS</span>
                 </button>
                 <button class="hud-toggle-btn" id="btnToggle3D" title="Toggle 3D Drone Perspective Tilt">
                   <span class="toggle-badge">3D</span>
@@ -253,17 +349,41 @@
               <div class="layers-header">
                 <div class="layers-title-row">
                   <svg viewBox="0 0 24 24" fill="none" stroke="#00F5FF" stroke-width="2" style="width:18px;height:18px;"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
-                  <span class="layers-title">ACCURATE PUBLIC MAP PROVIDERS</span>
+                  <span class="layers-title">MAP THEMES & PROVIDERS</span>
                 </div>
                 <button class="btn-icon-close" id="btnCloseLayersPopover">✕</button>
               </div>
-              <p class="layers-subtitle">Curated from Public APIs repository • 100% Free • Zero API Keys • Zero Watermarks</p>
+              <p class="layers-subtitle">Crisp Vector & Public APIs Map Tiling • 100% Free • Zero API Keys • Zero Watermarks</p>
               
               <div class="layers-grid">
-                <button class="layer-option-card active" data-style="direct-osm">
+                <button class="layer-option-card active" data-style="google-streets">
+                  <div class="layer-badge-row">
+                    <span class="layer-name">🟢 Google Maps (Standard)</span>
+                    <span class="layer-tag tag-verified">RECOMMENDED • HD CRISP</span>
+                  </div>
+                  <p class="layer-desc">Official Google Maps vector cartography. Every street, house, building, shop, restaurant & metro station with razor-sharp deep zoom.</p>
+                </button>
+
+                <button class="layer-option-card" data-style="google-hybrid">
+                  <div class="layer-badge-row">
+                    <span class="layer-name">🛰️ Google Hybrid Satellite</span>
+                    <span class="layer-tag tag-sat">PHOTO REAL + STREETS</span>
+                  </div>
+                  <p class="layer-desc">High-resolution orbital satellite photography combined with clear street labels and landmark names.</p>
+                </button>
+
+                <button class="layer-option-card" data-style="google-terrain">
+                  <div class="layer-badge-row">
+                    <span class="layer-name">🏔️ Google Maps Terrain</span>
+                    <span class="layer-tag">TOPOGRAPHY & RELIEF</span>
+                  </div>
+                  <p class="layer-desc">Topographical elevation contours, shaded relief, natural landforms, and highway paths.</p>
+                </button>
+
+                <button class="layer-option-card" data-style="direct-osm">
                   <div class="layer-badge-row">
                     <span class="layer-name">🗺️ OpenStreetMap (Standard)</span>
-                    <span class="layer-tag tag-verified">RECOMMENDED</span>
+                    <span class="layer-tag">OPEN DATA</span>
                   </div>
                   <p class="layer-desc">Direct global cartography. High-resolution street names, building footprints, and neighborhood lanes.</p>
                 </button>
@@ -282,14 +402,6 @@
                     <span class="layer-tag">COMMERCIAL GRADE</span>
                   </div>
                   <p class="layer-desc">Clean highway cartography, road numbers, transit corridors, and landmark labels.</p>
-                </button>
-
-                <button class="layer-option-card" data-style="esri-satellite">
-                  <div class="layer-badge-row">
-                    <span class="layer-name">🛰️ Esri Satellite + Hybrid Overlays</span>
-                    <span class="layer-tag tag-sat">PHOTO REAL</span>
-                  </div>
-                  <p class="layer-desc">High-resolution orbital satellite photography combined with boundary and street overlays.</p>
                 </button>
 
                 <button class="layer-option-card" data-style="esri-dark">

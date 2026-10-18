@@ -471,6 +471,367 @@ html, body {
   color: var(--text-secondary);
 }
 
+/* Ambient Holographic Background Canvas */
+.home-holo-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.65;
+}
+
+.home-container {
+  position: relative;
+  z-index: 1;
+}
+
+/* GNSS Status Bar */
+.gnss-status-cluster {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.gnss-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 12px;
+}
+
+.gnss-bars .bar {
+  width: 3px;
+  height: 100%;
+  background: rgba(0, 245, 255, 0.2);
+  border-radius: 1px;
+}
+
+.gnss-bars .bar:nth-child(1) { height: 40%; }
+.gnss-bars .bar:nth-child(2) { height: 60%; }
+.gnss-bars .bar:nth-child(3) { height: 80%; }
+.gnss-bars .bar:nth-child(4) { height: 100%; }
+
+.gnss-bars .bar.active {
+  background: #00F5FF;
+  box-shadow: 0 0 6px #00F5FF;
+}
+
+.meta-right-pills {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.badge-precision {
+  background: rgba(16, 185, 129, 0.15);
+  color: #10B981;
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+}
+
+/* 3D Gyroscopic Reactor Anchor */
+.gyro-reactor-anchor {
+  position: relative;
+  width: 210px;
+  height: 210px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Outer Compass Ring */
+.gyro-ring-outer {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  border: 1.5px dashed rgba(0, 245, 255, 0.45);
+  animation: gyro-rotate-cw 20s linear infinite;
+  box-shadow: 0 0 20px rgba(0, 245, 255, 0.15), inset 0 0 15px rgba(0, 245, 255, 0.1);
+}
+
+.gyro-cardinal {
+  position: absolute;
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: #00F5FF;
+  transform-origin: center;
+}
+.gyro-n { top: 3px; left: 50%; transform: translateX(-50%); color: #FF4757; }
+.gyro-e { top: 50%; right: 4px; transform: translateY(-50%); }
+.gyro-s { bottom: 3px; left: 50%; transform: translateX(-50%); }
+.gyro-w { top: 50%; left: 4px; transform: translateY(-50%); }
+
+/* Middle Segmented Ring */
+.gyro-ring-middle {
+  position: absolute;
+  width: 172px;
+  height: 172px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  border-top-color: #00F5FF;
+  border-bottom-color: #FFB800;
+  animation: gyro-rotate-ccw 10s linear infinite;
+  opacity: 0.8;
+  filter: drop-shadow(0 0 8px rgba(0, 245, 255, 0.6));
+}
+
+@keyframes gyro-rotate-cw {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes gyro-rotate-ccw {
+  from { transform: rotate(360deg); }
+  to { transform: rotate(0deg); }
+}
+
+.fab-pulse-ring-delayed {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  border: 1.5px solid var(--cyan-primary);
+  opacity: 0.35;
+  animation: fab-ring-pulse 3s ease-out infinite 1.5s;
+}
+
+.reactor-reticle {
+  position: absolute;
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  border: 1px dotted rgba(255, 255, 255, 0.3);
+  pointer-events: none;
+}
+
+/* Locality Coordinate Telemetry Ticker */
+.hero-locality-ticker {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(13, 27, 46, 0.85);
+  border: 1px solid rgba(0, 245, 255, 0.3);
+  border-radius: var(--radius-full);
+  padding: 6px 14px;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: #F8FAFC;
+  margin-bottom: 14px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
+.ticker-pin-icon {
+  width: 14px;
+  height: 14px;
+  color: #00F5FF;
+}
+
+.ticker-locality-name {
+  font-weight: 700;
+  color: #00F5FF;
+  letter-spacing: 0.05em;
+}
+
+.ticker-coords {
+  color: #94A3B8;
+}
+
+.ticker-badge {
+  background: rgba(16, 185, 129, 0.2);
+  color: #10B981;
+  font-size: 0.62rem;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-weight: 700;
+}
+
+/* Tactical Command Modules Grid */
+.command-modules-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+  width: 100%;
+  max-width: 780px;
+  margin-top: 8px;
+}
+
+.cmd-module-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: rgba(10, 20, 36, 0.75);
+  border: 1px solid rgba(0, 245, 255, 0.2);
+  border-radius: var(--radius-sm);
+  padding: 14px 16px;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.25s cubic-bezier(0.2, 0.9, 0.2, 1);
+  position: relative;
+  overflow: hidden;
+}
+
+.cmd-module-card::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 3px;
+  height: 100%;
+  background: #00F5FF;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.cmd-module-card:hover {
+  background: rgba(0, 245, 255, 0.1);
+  border-color: #00F5FF;
+  box-shadow: 0 4px 20px rgba(0, 245, 255, 0.25);
+  transform: translateY(-2px);
+}
+
+.cmd-module-card:hover::before {
+  opacity: 1;
+}
+
+.cmd-module-card.cmd-primary {
+  background: rgba(0, 245, 255, 0.12);
+  border-color: rgba(0, 245, 255, 0.5);
+  box-shadow: 0 0 16px rgba(0, 245, 255, 0.15);
+}
+
+.cmd-module-icon-wrap {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-sm);
+  background: rgba(0, 245, 255, 0.12);
+  border: 1px solid rgba(0, 245, 255, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #00F5FF;
+  flex-shrink: 0;
+}
+
+.cmd-module-icon-wrap svg {
+  width: 20px;
+  height: 20px;
+}
+
+.cmd-module-info {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  gap: 2px;
+}
+
+.cmd-module-title {
+  font-family: var(--font-display);
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #F8FAFC;
+  letter-spacing: 0.5px;
+}
+
+.cmd-module-desc {
+  font-size: 0.72rem;
+  color: #94A3B8;
+  line-height: 1.3;
+}
+
+.cmd-module-arrow {
+  color: #00F5FF;
+  font-size: 1.1rem;
+  font-weight: 700;
+  transition: transform 0.2s ease;
+}
+
+.cmd-module-card:hover .cmd-module-arrow {
+  transform: translateX(4px);
+}
+
+/* Spatial Mental Mastery Card */
+.mastery-rank-card {
+  padding: 16px 20px;
+  background: rgba(13, 27, 46, 0.7);
+}
+
+.mastery-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.mastery-title-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.mastery-badge {
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  letter-spacing: 1px;
+  color: #A78BFA;
+}
+
+.mastery-rank-title {
+  font-family: var(--font-display);
+  font-size: 1.1rem;
+  font-weight: 800;
+  color: #F8FAFC;
+  margin: 0;
+}
+
+.mastery-score-pill {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--font-mono);
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
+.streak-badge {
+  background: rgba(245, 158, 11, 0.15);
+  color: #F59E0B;
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  font-size: 0.68rem;
+  padding: 3px 8px;
+  border-radius: var(--radius-full);
+}
+
+.xp-bar-track {
+  width: 100%;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 3px;
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+
+.xp-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #00F5FF, #8B5CF6);
+  border-radius: 3px;
+  box-shadow: 0 0 10px rgba(0, 245, 255, 0.6);
+  transition: width 0.6s ease;
+}
+
+.xp-bar-labels {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: #94A3B8;
+}
+
 /* Giant Primary FAB Start Button */
 .hero-core-cta {
   margin: 20px 0 28px 0;
@@ -556,13 +917,6 @@ html, body {
   max-width: 540px;
   line-height: 1.5;
   margin-bottom: 24px;
-}
-
-.hero-action-row {
-  display: flex;
-  gap: 14px;
-  flex-wrap: wrap;
-  justify-content: center;
 }
 
 /* Button HUD Styling */
@@ -873,6 +1227,9 @@ html, body {
 }
 
 /* Map Basemap Styling Modes */
+.map-style-google-streets .leaflet-tile-pane,
+.map-style-google-hybrid .leaflet-tile-pane,
+.map-style-google-terrain .leaflet-tile-pane,
 .map-style-direct .leaflet-tile-pane,
 .map-style-hot .leaflet-tile-pane,
 .map-style-esri-streets .leaflet-tile-pane,
@@ -896,11 +1253,14 @@ html, body {
 .leaflet-container {
   background: #0B132B !important;
 }
+.map-style-google-streets .leaflet-container,
+.map-style-google-hybrid .leaflet-container,
+.map-style-google-terrain .leaflet-container,
 .map-style-direct .leaflet-container,
 .map-style-hot .leaflet-container,
 .map-style-esri-streets .leaflet-container,
 .map-style-opentopo .leaflet-container {
-  background: #F8FAFC !important;
+  background: #E5E7EB !important;
 }
 
 /* Public Maps Layer Selector Popover */

@@ -84,13 +84,34 @@ async function renderHomeDashboard() {
   if (lCountEl) lCountEl.textContent = landmarks.length;
   if (rScoreEl) rScoreEl.textContent = `${learnArena.score} XP`;
 
+  // Update Spatial Mental Mastery Rank Card
+  const xp = learnArena.score || 0;
+  const masteryEl = document.getElementById('homeMasteryXP');
+  if (masteryEl) masteryEl.textContent = `${xp} XP`;
+  const rankEl = document.getElementById('homeRankTitle');
+  const xpFill = document.getElementById('homeXpFill');
+  const xpNeeded = document.getElementById('homeXpNeeded');
+  if (xp < 100) {
+    if (rankEl) rankEl.textContent = 'NOVICE RECONNAISSANCE';
+    if (xpFill) xpFill.style.width = `${Math.max(12, (xp / 100) * 100)}%`;
+    if (xpNeeded) xpNeeded.textContent = `${100 - xp} XP to Urban Explorer Grade II`;
+  } else if (xp < 300) {
+    if (rankEl) rankEl.textContent = 'URBAN EXPLORER GRADE II';
+    if (xpFill) xpFill.style.width = `${Math.min(100, ((xp - 100) / 200) * 100)}%`;
+    if (xpNeeded) xpNeeded.textContent = `${300 - xp} XP to City Cartographer Grade III`;
+  } else {
+    if (rankEl) rankEl.textContent = 'MASTER CITY CARTOGRAPHER';
+    if (xpFill) xpFill.style.width = '100%';
+    if (xpNeeded) xpNeeded.textContent = 'Maximum Spatial Mastery Level Achieved';
+  }
+
   // Render Recent Routes
   const listEl = document.getElementById('homeRecentJourneysList');
   if (listEl) {
     if (journeys.length === 0) {
       listEl.innerHTML = `
         <div class="hud-bracket-panel" style="padding: 20px; text-align:center; color:#94A3B8;">
-          No journeys logged yet. Tap <strong>START JOURNEY</strong> or <strong>SIMULATE WALK</strong> above.
+          No journeys logged yet. Tap <strong>START MISSION</strong> or <strong>SIMULATE WALK</strong> above.
         </div>
       `;
     } else {
@@ -350,6 +371,12 @@ function setupTelemetrySubscriber() {
       if (street) {
         const badge = document.getElementById('currentStreetNameText');
         if (badge) badge.textContent = street;
+        const homeLoc = document.getElementById('homeDetectedLocality');
+        if (homeLoc) homeLoc.textContent = street.toUpperCase();
+      }
+      const homeCoords = document.getElementById('homeDetectedCoords');
+      if (homeCoords) {
+        homeCoords.textContent = `${lastLocation.latitude.toFixed(4)}° N, ${lastLocation.longitude.toFixed(4)}° E`;
       }
     }
   });
@@ -359,11 +386,12 @@ function setupTelemetrySubscriber() {
 document.addEventListener('DOMContentLoaded', async () => {
   startClock();
   setupTelemetrySubscriber();
+  initHomeHoloCanvas();
 
   // Initialize DB and Seed Demo Data
   await db.seedDemoDataIfEmpty();
 
-  // Initialize Main Holographic Map
+  // Initialize Main Holographic Map (Google Maps default)
   mainMap = new HolographicMapController('leafletMap');
   mainMap.init([12.9716, 77.5946], 15);
 
@@ -410,6 +438,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     tracker.startVirtualSimulation();
   });
 
+  document.getElementById('btnHomeLaunchArena')?.addEventListener('click', () => switchTab('learn'));
+  document.getElementById('btnHomeLaunchCompass')?.addEventListener('click', () => {
+    switchTab('learn');
+    learnArena.currentMode = 'radar';
+    learnArena.render();
+  });
+
   // Dock Buttons
   document.getElementById('btnDockStart')?.addEventListener('click', () => tracker.startRealGPS());
   document.getElementById('btnDockSimulate')?.addEventListener('click', () => tracker.startVirtualSimulation());
@@ -427,10 +462,12 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Map Style & Public Layer Providers System
   const STYLE_NAMES = {
+    'google-streets': 'GOOGLE MAPS',
+    'google-hybrid': 'GOOGLE HYBRID',
+    'google-terrain': 'GOOGLE TERRAIN',
     'direct-osm': 'DIRECT OSM',
     'osm-hot': 'HUMANITARIAN',
     'esri-streets': 'ESRI STREET',
-    'esri-satellite': 'SATELLITE',
     'esri-dark': 'ESRI DARK',
     'cyberpunk-osm': 'CYBERPUNK',
     'opentopo': 'TOPOGRAPHIC'
@@ -444,7 +481,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   function updateMapStyleUI(styleKey) {
     if (lblMapStyle) {
-      lblMapStyle.textContent = STYLE_NAMES[styleKey] || 'DIRECT OSM';
+      lblMapStyle.textContent = STYLE_NAMES[styleKey] || 'GOOGLE MAPS';
     }
     document.querySelectorAll('.layer-option-card').forEach(card => {
       card.classList.toggle('active', card.getAttribute('data-style') === styleKey);
@@ -693,3 +730,97 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Render initial home view
   renderHomeDashboard();
 });
+
+// Ambient Holographic Particle & Constellation Canvas
+function initHomeHoloCanvas() {
+  const canvas = document.getElementById('homeHoloGridCanvas');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+
+  function resize() {
+    canvas.width = canvas.parentElement?.clientWidth || window.innerWidth;
+    canvas.height = canvas.parentElement?.clientHeight || window.innerHeight;
+  }
+  resize();
+  window.addEventListener('resize', resize);
+
+  const nodeCount = 36;
+  const nodes = [];
+  for (let i = 0; i < nodeCount; i++) {
+    nodes.push({
+      x: Math.random() * (canvas.width || 800),
+      y: Math.random() * (canvas.height || 600),
+      vx: (Math.random() - 0.5) * 0.4,
+      vy: (Math.random() - 0.5) * 0.4,
+      radius: Math.random() * 1.8 + 1,
+      color: Math.random() > 0.45 ? 'rgba(0, 245, 255, ' : 'rgba(139, 92, 246, '
+    });
+  }
+
+  let radarAngle = 0;
+
+  function render() {
+    const w = canvas.width;
+    const h = canvas.height;
+    ctx.clearRect(0, 0, w, h);
+
+    // Subtle radar sweep arc from center
+    const cx = w / 2;
+    const cy = h * 0.32;
+    const maxR = Math.min(w, h) * 0.42;
+    radarAngle += 0.012;
+
+    const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, maxR);
+    grad.addColorStop(0, 'rgba(0, 245, 255, 0.04)');
+    grad.addColorStop(0.7, 'rgba(0, 245, 255, 0.01)');
+    grad.addColorStop(1, 'transparent');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(cx, cy, maxR, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Radar beam line
+    ctx.strokeStyle = 'rgba(0, 245, 255, 0.14)';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(cx + Math.cos(radarAngle) * maxR, cy + Math.sin(radarAngle) * maxR);
+    ctx.stroke();
+
+    // Draw connecting lines between nearby constellation nodes
+    for (let i = 0; i < nodeCount; i++) {
+      for (let j = i + 1; j < nodeCount; j++) {
+        const dx = nodes[i].x - nodes[j].x;
+        const dy = nodes[i].y - nodes[j].y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < 110) {
+          ctx.strokeStyle = `rgba(0, 245, 255, ${0.14 * (1 - dist / 110)})`;
+          ctx.lineWidth = 0.7;
+          ctx.beginPath();
+          ctx.moveTo(nodes[i].x, nodes[i].y);
+          ctx.lineTo(nodes[j].x, nodes[j].y);
+          ctx.stroke();
+        }
+      }
+    }
+
+    // Draw and update nodes
+    for (const n of nodes) {
+      n.x += n.vx;
+      n.y += n.vy;
+      if (n.x < 0 || n.x > w) n.vx *= -1;
+      if (n.y < 0 || n.y > h) n.vy *= -1;
+
+      ctx.fillStyle = `${n.color}0.7)`;
+      ctx.beginPath();
+      ctx.arc(n.x, n.y, n.radius, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    requestAnimationFrame(render);
+  }
+
+  requestAnimationFrame(render);
+}
+
