@@ -96,9 +96,11 @@ object LiveLocationManager {
                 Looper.getMainLooper()
             )
         } catch (e: Throwable) {
-            Log.w(TAG, "Failed to register fused updates, falling back to native: ${e.message}")
-            registerNativeFallback(appContext)
+            Log.w(TAG, "Fused location error: ${e.message}")
         }
+
+        // 4. Always register native GPS and Network providers in parallel for immediate indoor/outdoor fix
+        registerNativeFallback(appContext)
     }
 
     @SuppressLint("MissingPermission")

@@ -125,6 +125,8 @@ fun MainNavigation() {
 
             if (hasLocationPermissions()) {
                 LiveLocationManager.startWatching(context)
+            } else {
+                showPermissionDialog = true
             }
         } catch (e: Throwable) {
             android.util.Log.e("PathWise", "Database init warning: ${e.message}", e)

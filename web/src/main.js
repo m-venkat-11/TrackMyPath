@@ -395,6 +395,30 @@ document.addEventListener('DOMContentLoaded', async () => {
   mainMap = new HolographicMapController('leafletMap');
   mainMap.init([12.9716, 77.5946], 15);
 
+  // Proactively acquire real user GPS location and center map
+  if ('geolocation' in navigator) {
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const { latitude, longitude } = pos.coords;
+        mainMap.updateUserLocation(latitude, longitude);
+        mainMap.recenter(latitude, longitude, 16);
+        const street = await reverseGeocode(latitude, longitude);
+        if (street) {
+          const badge = document.getElementById('currentStreetNameText');
+          if (badge) badge.textContent = street;
+          const homeLoc = document.getElementById('homeDetectedLocality');
+          if (homeLoc) homeLoc.textContent = street.toUpperCase();
+        }
+        const homeCoords = document.getElementById('homeDetectedCoords');
+        if (homeCoords) {
+          homeCoords.textContent = `${latitude.toFixed(4)}° N, ${longitude.toFixed(4)}° E`;
+        }
+      },
+      (err) => console.log('Geolocation init status:', err.message),
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 }
+    );
+  }
+
   const landmarks = await db.getAllLandmarks();
   mainMap.setLandmarks(landmarks);
 
@@ -568,6 +592,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     sound.playTap();
     if (tracker.lastLocation) {
       mainMap.recenter(tracker.lastLocation.latitude, tracker.lastLocation.longitude);
+      mainMap.updateUserLocation(tracker.lastLocation.latitude, tracker.lastLocation.longitude);
+    } else if ('geolocation' in navigator) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          mainMap.updateUserLocation(pos.coords.latitude, pos.coords.longitude);
+          mainMap.recenter(pos.coords.latitude, pos.coords.longitude, 17);
+        },
+        (err) => alert('Unable to acquire GPS fix: ' + err.message),
+        { enableHighAccuracy: true, timeout: 8000 }
+      );
     } else {
       mainMap.recenter(12.9716, 77.5946);
     }
