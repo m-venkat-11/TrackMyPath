@@ -6,6 +6,7 @@ import android.content.Intent
 import android.os.Build
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
+import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -14,6 +15,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -36,8 +38,10 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import com.example.pathwise.data.geocoding.AreaDetails
 import com.example.pathwise.data.geocoding.GeocodedPlace
 import com.example.pathwise.data.geocoding.GeocodingRepository
+import com.example.pathwise.data.geocoding.NearbyPlace
 import com.example.pathwise.data.model.Journey
 import com.example.pathwise.data.model.Landmark
 import com.example.pathwise.data.model.LocationPoint
@@ -68,8 +72,9 @@ data class LaserMeasurementData(
 
 /**
  * Holographic Map HUD screen per PRD Section 5.4 & 6.4.
- * Features 3D perspective tilt, live 1s duration telemetry, real-time Nominatim reverse-geocoding,
- * interactive laser distance measurement, street search, and instant demo mission simulation.
+ * Features instant real-time live location tracking, Google Maps HD deep zoom,
+ * active area & street awareness, nearby landmarks discovery radar,
+ * approaching landmark proximity cues, and 3D perspective tilt.
  */
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
@@ -94,10 +99,12 @@ fun MapScreen(
     var showStopConfirmDialog by remember { mutableStateOf(false) }
     var selectedPointCoords by remember { mutableStateOf<Pair<Double, Double>?>(null) }
     var prefilledLandmarkName by remember { mutableStateOf("") }
+    var prefilledLandmarkCategory by remember { mutableStateOf("Landmark") }
 
     // Map WebView instance
     var webViewInstance by remember { mutableStateOf<WebView?>(null) }
     var isMapReady by remember { mutableStateOf(false) }
+    var hasInitiallyCentered by remember { mutableStateOf(false) }
 
     // 3D Perspective Tilt & Radar Sweep States
     var is3dMode by remember { mutableStateOf(false) }
@@ -107,8 +114,14 @@ fun MapScreen(
     var isLaserMeasureMode by remember { mutableStateOf(false) }
     var activeMeasurement by remember { mutableStateOf<LaserMeasurementData?>(null) }
 
-    // Live Reverse Geocoded Street Name
-    var currentStreetName by remember { mutableStateOf<String?>(null) }
+    // Live Geocoded Area & Street Awareness
+    var currentAreaDetails by remember { mutableStateOf<AreaDetails?>(null) }
+    var nearbyPlaces by remember { mutableStateOf<List<NearbyPlace>>(emptyList()) }
+    var showNearbyExpanded by remember { mutableStateOf(false) }
+    var isScanningNearby by remember { mutableStateOf(false) }
+
+    // Approaching Landmark Banner state
+    var approachingLandmarkText by remember { mutableStateOf<String?>(null) }
 
     // Search query & results state
     var searchQuery by remember { mutableStateOf("") }
@@ -117,21 +130,55 @@ fun MapScreen(
     var searchJob by remember { mutableStateOf<Job?>(null) }
     var showSearchBar by remember { mutableStateOf(false) }
 
-    // Reverse geocode whenever user location updates
+    // Real-time reverse geocoding & nearby landmark radar when location updates
     LaunchedEffect(currentLocation) {
         if (currentLocation != null) {
-            val name = GeocodingRepository.reverseGeocode(currentLocation.latitude, currentLocation.longitude)
-            if (name != null) {
-                currentStreetName = name
+            val lat = currentLocation.latitude
+            val lon = currentLocation.longitude
+
+            // 1. Fetch Area Details (Street & Suburb)
+            val details = GeocodingRepository.getAreaDetails(lat, lon)
+            if (details != null) {
+                currentAreaDetails = details
+            }
+
+            // 2. Fetch prominent nearby landmarks for spatial mental map
+            if (nearbyPlaces.isEmpty()) {
+                isScanningNearby = true
+                val discovered = GeocodingRepository.fetchNearbyLandmarks(lat, lon)
+                nearbyPlaces = discovered
+                isScanningNearby = false
+            }
+
+            // 3. Proximity check for approaching landmarks within 150m
+            val closeByUser = landmarks.firstOrNull { lm ->
+                GeocodingRepository.calculateDistanceMeters(lat, lon, lm.latitude, lm.longitude) < 150.0
+            }
+            if (closeByUser != null) {
+                val d = GeocodingRepository.calculateDistanceMeters(lat, lon, closeByUser.latitude, closeByUser.longitude).toInt()
+                approachingLandmarkText = "Approaching ${closeByUser.name} (~${d}m away)"
+            } else {
+                val closeNearby = nearbyPlaces.firstOrNull { it.distanceMeters in 1..150 }
+                if (closeNearby != null) {
+                    approachingLandmarkText = "Near ${closeNearby.name} (~${closeNearby.distanceMeters}m)"
+                } else {
+                    approachingLandmarkText = null
+                }
             }
         }
     }
 
-    // Sync user location to Leaflet map
+    // Smoothly fly to user location on first GPS fix, then update marker position
     LaunchedEffect(currentLocation, isMapReady) {
         if (isMapReady && currentLocation != null) {
-            val js = "updateUserLocation(${currentLocation.latitude}, ${currentLocation.longitude}, ${currentLocation.accuracy}, false);"
+            val autoPan = !hasInitiallyCentered
+            val js = "updateUserLocation(${currentLocation.latitude}, ${currentLocation.longitude}, ${currentLocation.accuracy}, $autoPan);"
             webViewInstance?.evaluateJavascript(js, null)
+
+            if (!hasInitiallyCentered) {
+                hasInitiallyCentered = true
+                webViewInstance?.evaluateJavascript("recenterTo(${currentLocation.latitude}, ${currentLocation.longitude}, 17);", null)
+            }
         }
     }
 
@@ -164,23 +211,12 @@ fun MapScreen(
         }
     }
 
-    fun startDemoMission() {
-        val intent = Intent(context, JourneyTrackingService::class.java).apply {
-            action = JourneyTrackingService.ACTION_SIMULATE_DEMO
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            context.startForegroundService(intent)
-        } else {
-            context.startService(intent)
-        }
-    }
-
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(ColorBackground)
     ) {
-        // ── Interactive Leaflet Carto Dark Matter Map with 3D Canvas ─────────
+        // ── Interactive Leaflet Google Maps HD with 3D Stage ─────────────────
         AndroidView(
             modifier = Modifier.fillMaxSize(),
             factory = { ctx ->
@@ -202,10 +238,18 @@ fun MapScreen(
                         fun onMapReady() {
                             isMapReady = true
                             post {
-                                val lat = currentLocation?.latitude ?: points.firstOrNull()?.latitude ?: 12.9716
-                                val lon = currentLocation?.longitude ?: points.firstOrNull()?.longitude ?: 77.5946
-                                evaluateJavascript("recenterTo($lat, $lon, 15);", null)
                                 evaluateJavascript("toggleRadarSweep(true);", null)
+                                val loc = currentLocation ?: points.firstOrNull()?.let {
+                                    val l = android.location.Location("point")
+                                    l.latitude = it.latitude
+                                    l.longitude = it.longitude
+                                    l
+                                }
+                                if (loc != null) {
+                                    hasInitiallyCentered = true
+                                    evaluateJavascript("recenterTo(${loc.latitude}, ${loc.longitude}, 17);", null)
+                                    evaluateJavascript("updateUserLocation(${loc.latitude}, ${loc.longitude}, ${loc.accuracy}, false);", null)
+                                }
                             }
                         }
 
@@ -215,6 +259,7 @@ fun MapScreen(
                                 selectedPointCoords = lat to lon
                                 val resolved = GeocodingRepository.reverseGeocode(lat, lon)
                                 prefilledLandmarkName = resolved ?: ""
+                                prefilledLandmarkCategory = "Landmark"
                                 showLandmarkDialog = true
                             }
                         }
@@ -239,7 +284,7 @@ fun MapScreen(
                 .align(Alignment.TopCenter)
                 .fillMaxWidth()
                 .statusBarsPadding()
-                .padding(horizontal = 16.dp, vertical = 10.dp)
+                .padding(horizontal = 16.dp, vertical = 8.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -259,13 +304,13 @@ fun MapScreen(
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     StatusChip(
-                        text = trackingState.displayLabel,
-                        isLive = trackingState == TrackingState.RECORDING,
-                        color = when (trackingState) {
-                            TrackingState.RECORDING -> ColorCyan
-                            TrackingState.PAUSED -> ColorWarning
-                            TrackingState.WAITING_FOR_GPS -> ColorTeal
-                            else -> ColorTextSecondary
+                        text = if (currentLocation == null) "LOCKING GNSS" else trackingState.displayLabel,
+                        isLive = trackingState == TrackingState.RECORDING || currentLocation != null,
+                        color = when {
+                            currentLocation == null -> ColorWarning
+                            trackingState == TrackingState.RECORDING -> ColorCyan
+                            trackingState == TrackingState.PAUSED -> ColorWarning
+                            else -> ColorTeal
                         }
                     )
                     Spacer(Modifier.width(8.dp))
@@ -273,7 +318,7 @@ fun MapScreen(
                 }
 
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    // 3D Tactical Tilt Toggle
+                    // 3D Perspective Tilt Toggle
                     IconButton(
                         onClick = {
                             is3dMode = !is3dMode
@@ -300,27 +345,30 @@ fun MapScreen(
                         Icon(Icons.Filled.Search, contentDescription = "Search", tint = if (showSearchBar) ColorCyan else ColorTextPrimary)
                     }
 
-                    // Recenter on GPS
+                    // Recenter on My Real Location FAB
                     IconButton(
                         onClick = {
-                            val lat = currentLocation?.latitude ?: points.lastOrNull()?.latitude ?: 12.9716
-                            val lon = currentLocation?.longitude ?: points.lastOrNull()?.longitude ?: 77.5946
-                            webViewInstance?.evaluateJavascript("recenterTo($lat, $lon, 16);", null)
+                            if (currentLocation != null) {
+                                webViewInstance?.evaluateJavascript("recenterTo(${currentLocation.latitude}, ${currentLocation.longitude}, 17);", null)
+                                webViewInstance?.evaluateJavascript("updateUserLocation(${currentLocation.latitude}, ${currentLocation.longitude}, ${currentLocation.accuracy}, true);", null)
+                            } else {
+                                Toast.makeText(context, "Acquiring live GPS satellite lock...", Toast.LENGTH_SHORT).show()
+                            }
                         },
                         modifier = Modifier
                             .size(42.dp)
                             .clip(CircleShape)
                             .background(ColorSurface.copy(alpha = 0.92f))
-                            .border(1.dp, ColorBorderCyan, CircleShape)
+                            .border(1.dp, ColorCyan, CircleShape)
                     ) {
-                        Icon(Icons.Filled.LocationOn, contentDescription = "Recenter", tint = ColorCyan)
+                        Icon(Icons.Filled.MyLocation, contentDescription = "Recenter", tint = ColorCyan)
                     }
                 }
             }
 
             // Search Bar Dropdown
             AnimatedVisibility(visible = showSearchBar, enter = fadeIn(), exit = fadeOut()) {
-                Column(modifier = Modifier.fillMaxWidth().padding(top = 10.dp)) {
+                Column(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
                     HoloPanel(modifier = Modifier.fillMaxWidth(), cornerRadius = 14.dp, glowColor = ColorCyan, withBrackets = true) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -345,7 +393,7 @@ fun MapScreen(
                                         isSearching = false
                                     }
                                 },
-                                placeholder = { Text("Search streets, places, areas…", fontSize = 13.sp, color = ColorTextSecondary) },
+                                placeholder = { Text("Search streets, places, landmarks…", fontSize = 13.sp, color = ColorTextSecondary) },
                                 singleLine = true,
                                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                                 keyboardActions = KeyboardActions(onSearch = { focusManager.clearFocus() }),
@@ -379,7 +427,7 @@ fun MapScreen(
                                                 focusManager.clearFocus()
                                                 showSearchBar = false
                                                 webViewInstance?.evaluateJavascript(
-                                                    "recenterTo(${result.latitude}, ${result.longitude}, 16);",
+                                                    "recenterTo(${result.latitude}, ${result.longitude}, 17);",
                                                     null
                                                 )
                                             }
@@ -396,121 +444,78 @@ fun MapScreen(
                 }
             }
 
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(6.dp))
 
-            // Live Street Name Badge
-            if (currentStreetName != null) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(ColorSurface.copy(alpha = 0.90f))
-                        .border(1.dp, ColorTeal.copy(alpha = 0.5f), RoundedCornerShape(10.dp))
-                        .padding(horizontal = 12.dp, vertical = 6.dp)
+            // ── Live Area, Street & Direction Awareness Banner ────────────────
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(ColorSurface.copy(alpha = 0.94f))
+                    .border(1.dp, BrushCyanGlow, RoundedCornerShape(12.dp))
+                    .padding(horizontal = 14.dp, vertical = 8.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                            Icon(Icons.Filled.Place, contentDescription = null, tint = ColorTeal, modifier = Modifier.size(14.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Filled.Navigation, contentDescription = null, tint = ColorCyan, modifier = Modifier.size(15.dp))
                             Spacer(Modifier.width(6.dp))
                             Text(
-                                text = currentStreetName ?: "",
-                                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
-                                color = ColorTextPrimary,
+                                text = currentAreaDetails?.formattedHeadline
+                                    ?: if (currentLocation == null) "Acquiring live GPS fix..." else "Position Acquired",
+                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                color = ColorCyan,
                                 maxLines = 1
                             )
                         }
                         Text(
-                            text = "LIVE HUD",
-                            fontSize = 8.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = ColorCyan,
-                            letterSpacing = 1.sp
+                            text = currentAreaDetails?.formattedSubtitle
+                                ?: if (currentLocation != null) "GPS Locked • Precision ±${currentLocation.accuracy.toInt()}m" else "Stand by for satellite signal",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = ColorTextSecondary,
+                            maxLines = 1
+                        )
+                    }
+
+                    Column(horizontalAlignment = Alignment.End) {
+                        val speedStr = LocationUtils.formatSpeed(currentLocation?.speed)
+                        Text(
+                            text = speedStr,
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                            color = ColorTeal
+                        )
+                        Text(
+                            text = if (currentLocation != null && currentLocation.hasBearing()) "${currentLocation.bearing.toInt()}°" else "ACTIVE",
+                            fontSize = 10.sp,
+                            fontFamily = FontFamily.Monospace,
+                            color = ColorTextSecondary
                         )
                     }
                 }
-                Spacer(Modifier.height(8.dp))
             }
 
-            // Laser Measurement Active Card (PRD Section 6.10)
-            if (isLaserMeasureMode) {
-                HoloPanel(modifier = Modifier.fillMaxWidth(), cornerRadius = 12.dp, glowColor = ColorWarning, withBrackets = true) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column {
-                            Text("LASER DISTANCE TOOL", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = ColorWarning, letterSpacing = 1.sp)
-                            if (activeMeasurement != null) {
-                                val m = activeMeasurement!!
-                                Text(
-                                    "${LocationUtils.formatDistance(m.distanceMeters)}  •  ${m.bearingDegrees}°  •  ~${m.walkingMinutes} min walk",
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = ColorCyan,
-                                    fontFamily = FontFamily.Monospace
-                                )
-                            } else {
-                                Text("Tap two points on the map to measure", fontSize = 12.sp, color = ColorTextSecondary)
-                            }
-                        }
-
-                        IconButton(onClick = {
-                            isLaserMeasureMode = false
-                            activeMeasurement = null
-                            webViewInstance?.evaluateJavascript("setMeasureMode(false);", null)
-                        }) {
-                            Icon(Icons.Filled.Close, contentDescription = "Close", tint = ColorWarning, modifier = Modifier.size(18.dp))
-                        }
-                    }
-                }
-                Spacer(Modifier.height(8.dp))
-            }
-
-            // Telemetry Floating Panel with Chamfered Brackets
-            HoloPanel(
-                modifier = Modifier.fillMaxWidth(),
-                cornerRadius = 14.dp,
-                glowColor = ColorCyan,
-                withBrackets = true
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceAround
+            // Approaching Landmark Proximity Alert
+            if (approachingLandmarkText != null) {
+                Spacer(Modifier.height(6.dp))
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(ColorCyan.copy(alpha = 0.18f))
+                        .border(1.dp, ColorCyan, RoundedCornerShape(8.dp))
+                        .padding(horizontal = 12.dp, vertical = 5.dp)
                 ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("DISTANCE", style = MaterialTheme.typography.bodySmall, color = ColorTextSecondary, fontSize = 9.sp)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Filled.NotificationsActive, contentDescription = null, tint = ColorCyan, modifier = Modifier.size(14.dp))
+                        Spacer(Modifier.width(8.dp))
                         Text(
-                            LocationUtils.formatDistance(currentJourney?.recordedDistanceMeters ?: 0.0),
-                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 15.sp, fontWeight = FontWeight.Bold),
-                            color = ColorCyan
-                        )
-                    }
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("DURATION", style = MaterialTheme.typography.bodySmall, color = ColorTextSecondary, fontSize = 9.sp)
-                        Text(
-                            LocationUtils.formatDuration(currentJourney?.durationSeconds ?: 0L),
-                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 15.sp, fontWeight = FontWeight.Bold),
-                            color = ColorCyan
-                        )
-                    }
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("SPEED", style = MaterialTheme.typography.bodySmall, color = ColorTextSecondary, fontSize = 9.sp)
-                        Text(
-                            LocationUtils.formatSpeed(currentLocation?.speed),
-                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 15.sp, fontWeight = FontWeight.Bold),
-                            color = ColorCyan
-                        )
-                    }
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("POINTS", style = MaterialTheme.typography.bodySmall, color = ColorTextSecondary, fontSize = 9.sp)
-                        Text(
-                            "${points.size}",
-                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 15.sp, fontWeight = FontWeight.Bold),
+                            text = approachingLandmarkText!!,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
                             color = ColorCyan
                         )
                     }
@@ -518,7 +523,7 @@ fun MapScreen(
             }
         }
 
-        // ── Floating Action Tools (Zoom + Laser Measure + Radar) ─────────────
+        // ── Right Side Floating Action Tools ─────────────────────────────────
         Column(
             modifier = Modifier
                 .align(Alignment.CenterEnd)
@@ -581,142 +586,320 @@ fun MapScreen(
             }
         }
 
-        // ── Bottom Control Dock ───────────────────────────────────────────────
-        HoloPanel(
+        // ── Bottom Panel: Spatial Learning Radar & Tracking Controls ──────────
+        Column(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .padding(16.dp)
+                .padding(horizontal = 16.dp, vertical = 14.dp)
                 .navigationBarsPadding(),
-            cornerRadius = 22.dp,
-            glowColor = ColorCyan,
-            withBrackets = true
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                // If not currently recording, show Demo Simulation quick-launch
-                if (trackingState == TrackingState.IDLE) {
-                    OutlinedButton(
-                        onClick = { startDemoMission() },
-                        shape = RoundedCornerShape(12.dp),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, ColorCyan),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = ColorCyan),
-                        modifier = Modifier.fillMaxWidth().height(44.dp)
-                    ) {
-                        Text("⚡ SIMULATE DEMO WALK MISSION", fontWeight = FontWeight.Bold, fontSize = 12.sp, letterSpacing = 1.sp)
+            // ── Spatial Learning: Nearby Landmarks Radar Ticker ──────────────
+            if (nearbyPlaces.isNotEmpty()) {
+                HoloPanel(
+                    modifier = Modifier.fillMaxWidth(),
+                    cornerRadius = 12.dp,
+                    glowColor = ColorTeal,
+                    withBrackets = false
+                ) {
+                    Column {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { showNearbyExpanded = !showNearbyExpanded },
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("📍", fontSize = 14.sp)
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    "NEARBY LANDMARKS (${nearbyPlaces.size})",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = ColorTeal,
+                                    letterSpacing = 1.sp
+                                )
+                            }
+                            Text(
+                                if (showNearbyExpanded) "Collapse ▲" else "View All ▼",
+                                fontSize = 11.sp,
+                                color = ColorCyan,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+
+                        if (!showNearbyExpanded) {
+                            Spacer(Modifier.height(6.dp))
+                            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                items(nearbyPlaces.take(4)) { place ->
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(ColorSurfaceVariant.copy(alpha = 0.8f))
+                                            .border(1.dp, ColorBorderCyan.copy(alpha = 0.4f), RoundedCornerShape(8.dp))
+                                            .padding(horizontal = 10.dp, vertical = 5.dp)
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text(place.name, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = ColorTextPrimary, maxLines = 1)
+                                            Spacer(Modifier.width(6.dp))
+                                            Text("${place.distanceMeters}m ${place.cardinalDirection}", fontSize = 10.sp, color = ColorCyan, fontFamily = FontFamily.Monospace)
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            Spacer(Modifier.height(8.dp))
+                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                nearbyPlaces.take(6).forEach { place ->
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(place.name, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = ColorTextPrimary, maxLines = 1)
+                                            Text("${place.category} • ${place.distanceMeters}m away (${place.cardinalDirection})", fontSize = 10.sp, color = ColorTextSecondary)
+                                        }
+                                        OutlinedButton(
+                                            onClick = {
+                                                onSaveLandmark(place.name, place.category, "Discovered during live route", place.latitude, place.longitude)
+                                                Toast.makeText(context, "Pinned ${place.name} to Mental Map!", Toast.LENGTH_SHORT).show()
+                                            },
+                                            shape = RoundedCornerShape(8.dp),
+                                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                            border = androidx.compose.foundation.BorderStroke(1.dp, ColorCyan)
+                                        ) {
+                                            Text("+ Pin", fontSize = 11.sp, color = ColorCyan)
+                                        }
+                                    }
+                                    HoloDivider()
+                                }
+                            }
+                        }
                     }
                 }
+            }
 
+            // Laser Measurement Active Card
+            if (isLaserMeasureMode) {
+                HoloPanel(modifier = Modifier.fillMaxWidth(), cornerRadius = 12.dp, glowColor = ColorWarning, withBrackets = true) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text("LASER DISTANCE TOOL", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = ColorWarning, letterSpacing = 1.sp)
+                            if (activeMeasurement != null) {
+                                val m = activeMeasurement!!
+                                Text(
+                                    "${LocationUtils.formatDistance(m.distanceMeters)}  •  ${m.bearingDegrees}°  •  ~${m.walkingMinutes} min walk",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = ColorCyan,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            } else {
+                                Text("Tap two points on the map to measure", fontSize = 12.sp, color = ColorTextSecondary)
+                            }
+                        }
+
+                        IconButton(onClick = {
+                            isLaserMeasureMode = false
+                            activeMeasurement = null
+                            webViewInstance?.evaluateJavascript("setMeasureMode(false);", null)
+                        }) {
+                            Icon(Icons.Filled.Close, contentDescription = "Close", tint = ColorWarning, modifier = Modifier.size(18.dp))
+                        }
+                    }
+                }
+            }
+
+            // Live Telemetry Matrix
+            HoloPanel(
+                modifier = Modifier.fillMaxWidth(),
+                cornerRadius = 14.dp,
+                glowColor = ColorCyan,
+                withBrackets = true
+            ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                    horizontalArrangement = Arrangement.SpaceAround
                 ) {
-                    // Add Landmark CTA
-                    OutlinedButton(
-                        onClick = {
-                            val lat = currentLocation?.latitude ?: points.lastOrNull()?.latitude ?: 12.9716
-                            val lon = currentLocation?.longitude ?: points.lastOrNull()?.longitude ?: 77.5946
-                            selectedPointCoords = lat to lon
-                            prefilledLandmarkName = currentStreetName ?: ""
-                            showLandmarkDialog = true
-                        },
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("DISTANCE", style = MaterialTheme.typography.bodySmall, color = ColorTextSecondary, fontSize = 9.sp)
+                        Text(
+                            LocationUtils.formatDistance(currentJourney?.recordedDistanceMeters ?: 0.0),
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 15.sp, fontWeight = FontWeight.Bold),
+                            color = ColorCyan
+                        )
+                    }
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("DURATION", style = MaterialTheme.typography.bodySmall, color = ColorTextSecondary, fontSize = 9.sp)
+                        Text(
+                            LocationUtils.formatDuration(currentJourney?.durationSeconds ?: 0L),
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 15.sp, fontWeight = FontWeight.Bold),
+                            color = ColorCyan
+                        )
+                    }
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("SPEED", style = MaterialTheme.typography.bodySmall, color = ColorTextSecondary, fontSize = 9.sp)
+                        Text(
+                            LocationUtils.formatSpeed(currentLocation?.speed),
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 15.sp, fontWeight = FontWeight.Bold),
+                            color = ColorCyan
+                        )
+                    }
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("LANDMARKS", style = MaterialTheme.typography.bodySmall, color = ColorTextSecondary, fontSize = 9.sp)
+                        Text(
+                            "${landmarks.size}",
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 15.sp, fontWeight = FontWeight.Bold),
+                            color = ColorCyan
+                        )
+                    }
+                }
+            }
+
+            // Tracking Control Buttons (Pause, Resume, Stop, Pin Landmark)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                // Pin Landmark FAB
+                Button(
+                    onClick = {
+                        val lat = currentLocation?.latitude ?: points.lastOrNull()?.latitude ?: 0.0
+                        val lon = currentLocation?.longitude ?: points.lastOrNull()?.longitude ?: 0.0
+                        selectedPointCoords = lat to lon
+                        prefilledLandmarkName = currentAreaDetails?.street ?: ""
+                        prefilledLandmarkCategory = "Landmark"
+                        showLandmarkDialog = true
+                    },
+                    modifier = Modifier.weight(1f).height(48.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = ColorSurfaceVariant),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, ColorBorderCyan)
+                ) {
+                    Icon(Icons.Filled.AddLocation, contentDescription = null, tint = ColorCyan, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Pin Landmark", color = ColorCyan, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                }
+
+                if (trackingState == TrackingState.RECORDING) {
+                    Button(
+                        onClick = onPause,
+                        modifier = Modifier.weight(1f).height(48.dp),
                         shape = RoundedCornerShape(12.dp),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, ColorViolet.copy(alpha = 0.8f)),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = ColorViolet),
-                        modifier = Modifier.height(44.dp)
+                        colors = ButtonDefaults.buttonColors(containerColor = ColorWarning.copy(alpha = 0.2f)),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, ColorWarning)
                     ) {
-                        Icon(Icons.Filled.Place, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Icon(Icons.Filled.Pause, contentDescription = null, tint = ColorWarning, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Pause", color = ColorWarning, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
+
+                    Button(
+                        onClick = { showStopConfirmDialog = true },
+                        modifier = Modifier.weight(1f).height(48.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = ColorError.copy(alpha = 0.25f)),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, ColorError)
+                    ) {
+                        Icon(Icons.Filled.Stop, contentDescription = null, tint = ColorError, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Stop", color = ColorError, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
+                } else if (trackingState == TrackingState.PAUSED) {
+                    Button(
+                        onClick = onResume,
+                        modifier = Modifier.weight(1f).height(48.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = ColorCyan.copy(alpha = 0.25f)),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, ColorCyan)
+                    ) {
+                        Icon(Icons.Filled.PlayArrow, contentDescription = null, tint = ColorCyan, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Resume", color = ColorCyan, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
+
+                    Button(
+                        onClick = { showStopConfirmDialog = true },
+                        modifier = Modifier.weight(1f).height(48.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = ColorError.copy(alpha = 0.25f)),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, ColorError)
+                    ) {
+                        Icon(Icons.Filled.Stop, contentDescription = null, tint = ColorError, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Save & Exit", color = ColorError, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
+                } else {
+                    // IDLE: Explore Mode CTA
+                    Button(
+                        onClick = {
+                            val intent = Intent(context, JourneyTrackingService::class.java).apply {
+                                action = JourneyTrackingService.ACTION_START
+                            }
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                context.startForegroundService(intent)
+                            } else {
+                                context.startService(intent)
+                            }
+                        },
+                        modifier = Modifier.weight(2f).height(48.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = ColorCyan)
+                    ) {
+                        Icon(Icons.Filled.PlayArrow, contentDescription = null, tint = ColorTextOnCyan, modifier = Modifier.size(20.dp))
                         Spacer(Modifier.width(6.dp))
-                        Text("Landmark", fontSize = 12.sp)
-                    }
-
-                    // Recording Controls: Pause / Resume / Start
-                    if (trackingState == TrackingState.RECORDING) {
-                        IconButton(
-                            onClick = onPause,
-                            modifier = Modifier
-                                .size(50.dp)
-                                .clip(CircleShape)
-                                .background(ColorWarning.copy(alpha = 0.2f))
-                                .border(1.5.dp, ColorWarning, CircleShape)
-                        ) {
-                            Icon(Icons.Filled.PlayArrow, contentDescription = "Pause", tint = ColorWarning, modifier = Modifier.size(26.dp))
-                        }
-                    } else if (trackingState == TrackingState.PAUSED) {
-                        IconButton(
-                            onClick = onResume,
-                            modifier = Modifier
-                                .size(50.dp)
-                                .clip(CircleShape)
-                                .background(ColorCyan.copy(alpha = 0.2f))
-                                .border(1.5.dp, ColorCyan, CircleShape)
-                        ) {
-                            Icon(Icons.Filled.PlayArrow, contentDescription = "Resume", tint = ColorCyan, modifier = Modifier.size(26.dp))
-                        }
-                    }
-
-                    // Stop Journey Button
-                    if (trackingState != TrackingState.IDLE) {
-                        Button(
-                            onClick = { showStopConfirmDialog = true },
-                            shape = RoundedCornerShape(12.dp),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = ColorError,
-                                contentColor = ColorTextPrimary
-                            ),
-                            modifier = Modifier.height(44.dp)
-                        ) {
-                            Icon(Icons.Filled.Close, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text("Stop", fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                        }
+                        Text("Start Recording Route", color = ColorTextOnCyan, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                     }
                 }
             }
         }
-    }
 
-    // Landmark Creation Dialog
-    if (showLandmarkDialog) {
-        val (lat, lon) = selectedPointCoords ?: (
-            (currentLocation?.latitude ?: points.lastOrNull()?.latitude ?: 12.9716) to
-            (currentLocation?.longitude ?: points.lastOrNull()?.longitude ?: 77.5946)
-        )
-        NewLandmarkDialog(
-            latitude = lat,
-            longitude = lon,
-            onDismiss = { showLandmarkDialog = false },
-            onSave = { name, cat, notes ->
-                onSaveLandmark(name, cat, notes, lat, lon)
-                showLandmarkDialog = false
-            }
-        )
-    }
+        // New Landmark Dialog
+        if (showLandmarkDialog && selectedPointCoords != null) {
+            val (cLat, cLon) = selectedPointCoords!!
+            NewLandmarkDialog(
+                latitude = cLat,
+                longitude = cLon,
+                onDismiss = { showLandmarkDialog = false },
+                onSave = { name, cat, notes ->
+                    showLandmarkDialog = false
+                    onSaveLandmark(name, cat, notes, cLat, cLon)
+                }
+            )
+        }
 
-    // Stop Confirmation Dialog
-    if (showStopConfirmDialog) {
-        AlertDialog(
-            onDismissRequest = { showStopConfirmDialog = false },
-            title = { Text("End Journey Recording?", color = ColorTextPrimary) },
-            text = { Text("All recorded points will be finalized and saved to your local journey library.", color = ColorTextSecondary) },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        showStopConfirmDialog = false
-                        onStop()
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = ColorCyan, contentColor = ColorTextOnCyan)
-                ) {
-                    Text("Save & End")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showStopConfirmDialog = false }) {
-                    Text("Cancel", color = ColorTextSecondary)
-                }
-            },
-            containerColor = ColorSurface,
-            shape = RoundedCornerShape(16.dp)
-        )
+        // Stop Confirmation Dialog
+        if (showStopConfirmDialog) {
+            AlertDialog(
+                onDismissRequest = { showStopConfirmDialog = false },
+                title = { Text("Complete Journey HUD?", color = ColorTextPrimary, fontWeight = FontWeight.Bold) },
+                text = { Text("Your route will be saved to your Journey Library and available for City Recall memory challenges.", color = ColorTextSecondary) },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            showStopConfirmDialog = false
+                            onStop()
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = ColorCyan)
+                    ) {
+                        Text("Save & Finish", color = ColorTextOnCyan, fontWeight = FontWeight.Bold)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showStopConfirmDialog = false }) {
+                        Text("Cancel", color = ColorTextSecondary)
+                    }
+                },
+                containerColor = ColorSurface,
+                shape = RoundedCornerShape(16.dp)
+            )
+        }
     }
 }

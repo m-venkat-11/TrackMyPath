@@ -1,50 +1,62 @@
 package com.example.pathwise.ui.journeys
 
-import androidx.compose.foundation.Canvas
+import android.annotation.SuppressLint
+import android.webkit.JavascriptInterface
+import android.webkit.WebView
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.*
-import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
+import com.example.pathwise.data.geocoding.GeocodingRepository
 import com.example.pathwise.data.model.Journey
 import com.example.pathwise.data.model.LocationPoint
 import com.example.pathwise.data.repository.LocationUtils
 import com.example.pathwise.theme.*
 import com.example.pathwise.ui.components.HoloDivider
 import com.example.pathwise.ui.components.HoloPanel
-import kotlin.math.cos
 
 /**
- * Journey detail and replay screen with interactive timeline slider per PRD Section 6.6.
+ * Interactive Journey Replay & City Learning Screen.
+ * Renders the recorded GPS route over Google Maps HD tiles, provides an interactive
+ * time-scrubber with dynamic street and area identification, and connects directly
+ * to the City Recall Arena for spatial memory practice.
  */
+@SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun JourneyDetailScreen(
     journey: Journey,
     points: List<LocationPoint>,
     onNavigateBack: () -> Unit,
+    onOpenRecall: () -> Unit = {}
 ) {
     var replayProgress by remember { mutableFloatStateOf(1.0f) }
     var isPlaying by remember { mutableStateOf(false) }
+    var webViewInstance by remember { mutableStateOf<WebView?>(null) }
+    var isMapReady by remember { mutableStateOf(false) }
+
+    var currentWaypointStreet by remember { mutableStateOf<String?>(null) }
 
     // Replay timer loop
     LaunchedEffect(isPlaying) {
         while (isPlaying) {
-            kotlinx.coroutines.delay(100)
-            replayProgress += 0.02f
+            kotlinx.coroutines.delay(120)
+            replayProgress += 0.025f
             if (replayProgress >= 1.0f) {
                 replayProgress = 1.0f
                 isPlaying = false
@@ -53,7 +65,35 @@ fun JourneyDetailScreen(
     }
 
     val visiblePointCount = (points.size * replayProgress).toInt().coerceIn(0, points.size)
-    val currentPoints = points.take(visiblePointCount)
+    val activePoint = if (visiblePointCount > 0 && visiblePointCount <= points.size) {
+        points[visiblePointCount - 1]
+    } else points.lastOrNull()
+
+    // Reverse geocode the active point on scrubber movement
+    LaunchedEffect(activePoint) {
+        if (activePoint != null) {
+            val name = GeocodingRepository.reverseGeocode(activePoint.latitude, activePoint.longitude)
+            currentWaypointStreet = name ?: "Traversing Path"
+
+            if (isMapReady) {
+                webViewInstance?.evaluateJavascript("updateUserLocation(${activePoint.latitude}, ${activePoint.longitude}, 4, false);", null)
+                webViewInstance?.evaluateJavascript("recenterTo(${activePoint.latitude}, ${activePoint.longitude}, 16);", null)
+            }
+        }
+    }
+
+    // Load full route polyline into WebView on map ready
+    LaunchedEffect(isMapReady, points) {
+        if (isMapReady && points.size >= 2) {
+            val jsonCoords = points.filter { it.qualityStatus == com.example.pathwise.data.model.PointQuality.ACCEPTED }
+                .map { "[${it.latitude},${it.longitude}]" }
+                .joinToString(",", "[", "]")
+            webViewInstance?.evaluateJavascript("setRoutePoints('$jsonCoords');", null)
+
+            val mid = points[points.size / 2]
+            webViewInstance?.evaluateJavascript("recenterTo(${mid.latitude}, ${mid.longitude}, 15);", null)
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -65,38 +105,53 @@ fun JourneyDetailScreen(
         // Top Bar
         Row(
             modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
         ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(
+                    onClick = onNavigateBack,
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(ColorSurfaceVariant)
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = ColorTextPrimary)
+                }
+
+                Spacer(Modifier.width(12.dp))
+
+                Column {
+                    Text(
+                        text = journey.title,
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        color = ColorTextPrimary,
+                        maxLines = 1
+                    )
+                    Text(
+                        text = "Recorded Route • ${points.size} GPS fixes",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = ColorCyan
+                    )
+                }
+            }
+
+            // Practice Recall Button
             IconButton(
-                onClick = onNavigateBack,
+                onClick = onOpenRecall,
                 modifier = Modifier
                     .size(40.dp)
                     .clip(CircleShape)
-                    .background(ColorSurfaceVariant)
+                    .background(ColorCyan.copy(alpha = 0.2f))
+                    .border(1.dp, ColorCyan, CircleShape)
             ) {
-                Icon(Icons.Filled.ArrowBack, contentDescription = "Back", tint = ColorTextPrimary)
-            }
-
-            Spacer(Modifier.width(12.dp))
-
-            Column {
-                Text(
-                    text = journey.title,
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                    color = ColorTextPrimary,
-                    maxLines = 1
-                )
-                Text(
-                    text = "Actual GPS Trace • ${points.size} recorded points",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = ColorCyan
-                )
+                Icon(Icons.Filled.Psychology, contentDescription = "Recall Quiz", tint = ColorCyan, modifier = Modifier.size(22.dp))
             }
         }
 
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(12.dp))
 
-        // Trajectory Preview Canvas
+        // Interactive Google Maps HD Route View
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -105,71 +160,58 @@ fun JourneyDetailScreen(
                 .background(ColorSurface)
                 .border(1.dp, ColorBorderCyan, RoundedCornerShape(16.dp))
         ) {
-            Canvas(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-                if (points.size < 2) return@Canvas
+            AndroidView(
+                modifier = Modifier.fillMaxSize(),
+                factory = { ctx ->
+                    WebView(ctx).apply {
+                        settings.javaScriptEnabled = true
+                        settings.domStorageEnabled = true
+                        settings.allowFileAccess = true
+                        settings.allowContentAccess = true
+                        settings.allowFileAccessFromFileURLs = true
+                        settings.allowUniversalAccessFromFileURLs = true
+                        settings.mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+                        setBackgroundColor(android.graphics.Color.parseColor("#050D1A"))
 
-                val minLat = points.minOf { it.latitude }
-                val maxLat = points.maxOf { it.latitude }
-                val minLon = points.minOf { it.longitude }
-                val maxLon = points.maxOf { it.longitude }
+                        addJavascriptInterface(object {
+                            @JavascriptInterface
+                            fun onMapReady() {
+                                isMapReady = true
+                            }
+                        }, "AndroidBridge")
 
-                val dLat = (maxLat - minLat).coerceAtLeast(0.0001)
-                val dLon = (maxLon - minLon).coerceAtLeast(0.0001)
-
-                val pad = 40f
-                val w = size.width - pad * 2
-                val h = size.height - pad * 2
-
-                fun project(lat: Double, lon: Double): Offset {
-                    val x = pad + ((lon - minLon) / dLon * w).toFloat()
-                    val y = pad + ((maxLat - lat) / dLat * h).toFloat()
-                    return Offset(x, y)
-                }
-
-                // Full route faint background line
-                val fullPath = Path()
-                fullPath.moveTo(project(points[0].latitude, points[0].longitude).x, project(points[0].latitude, points[0].longitude).y)
-                for (p in points) {
-                    val off = project(p.latitude, p.longitude)
-                    fullPath.lineTo(off.x, off.y)
-                }
-                drawPath(fullPath, color = ColorSurfaceVariant, style = Stroke(4.dp.toPx(), cap = StrokeCap.Round))
-
-                // Replay active path
-                if (currentPoints.size >= 2) {
-                    val activePath = Path()
-                    val first = project(currentPoints[0].latitude, currentPoints[0].longitude)
-                    activePath.moveTo(first.x, first.y)
-                    for (p in currentPoints) {
-                        val off = project(p.latitude, p.longitude)
-                        activePath.lineTo(off.x, off.y)
+                        loadUrl("file:///android_asset/map.html")
+                        webViewInstance = this
                     }
-
-                    // Glow
-                    drawPath(activePath, color = ColorCyan.copy(alpha = 0.25f), style = Stroke(10.dp.toPx(), cap = StrokeCap.Round))
-                    // Core
-                    drawPath(activePath, color = ColorCyan, style = Stroke(3.5f.dp.toPx(), cap = StrokeCap.Round))
-
-                    // Replay Current Pin
-                    val head = currentPoints.last()
-                    val headOff = project(head.latitude, head.longitude)
-                    drawCircle(ColorCyan, radius = 7.dp.toPx(), center = headOff)
-                    drawCircle(ColorTextPrimary, radius = 3.dp.toPx(), center = headOff)
                 }
+            )
 
-                // Start / Finish Pins
-                val startOff = project(points.first().latitude, points.first().longitude)
-                drawCircle(ColorGreen, radius = 5.dp.toPx(), center = startOff)
-
-                val endOff = project(points.last().latitude, points.last().longitude)
-                drawCircle(ColorError, radius = 5.dp.toPx(), center = endOff)
+            // Dynamic Street & Waypoint Overlay
+            if (currentWaypointStreet != null) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(top = 10.dp, start = 12.dp, end = 12.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(ColorSurface.copy(alpha = 0.92f))
+                        .border(1.dp, BrushCyanGlow, RoundedCornerShape(10.dp))
+                        .padding(horizontal = 14.dp, vertical = 6.dp)
+                ) {
+                    Text(
+                        text = currentWaypointStreet!!,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = ColorCyan,
+                        maxLines = 1
+                    )
+                }
             }
         }
 
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(14.dp))
 
-        // Replay Timeline Slider
-        HoloPanel(modifier = Modifier.fillMaxWidth(), cornerRadius = 16.dp) {
+        // Replay Timeline Scrubber
+        HoloPanel(modifier = Modifier.fillMaxWidth(), cornerRadius = 14.dp) {
             Column {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -177,7 +219,7 @@ fun JourneyDetailScreen(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text(
-                        "Route Replay",
+                        "Route Walkthrough Replay",
                         style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
                         color = ColorTextPrimary
                     )
@@ -193,7 +235,7 @@ fun JourneyDetailScreen(
                             .background(ColorCyan)
                     ) {
                         Icon(
-                            imageVector = Icons.Filled.PlayArrow,
+                            imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
                             contentDescription = if (isPlaying) "Pause" else "Play",
                             tint = ColorTextOnCyan,
                             modifier = Modifier.size(20.dp)
@@ -233,39 +275,18 @@ fun JourneyDetailScreen(
             }
         }
 
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(10.dp))
 
-        // Metrics Summary Card
-        HoloPanel(modifier = Modifier.fillMaxWidth(), cornerRadius = 14.dp) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceAround
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("TOTAL DISTANCE", style = MaterialTheme.typography.bodySmall, color = ColorTextSecondary, fontSize = 9.sp)
-                    Text(
-                        LocationUtils.formatDistance(journey.recordedDistanceMeters),
-                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 14.sp, fontWeight = FontWeight.Bold),
-                        color = ColorCyan
-                    )
-                }
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("TOTAL DURATION", style = MaterialTheme.typography.bodySmall, color = ColorTextSecondary, fontSize = 9.sp)
-                    Text(
-                        LocationUtils.formatDuration(journey.durationSeconds),
-                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 14.sp, fontWeight = FontWeight.Bold),
-                        color = ColorCyan
-                    )
-                }
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("GPS POINTS", style = MaterialTheme.typography.bodySmall, color = ColorTextSecondary, fontSize = 9.sp)
-                    Text(
-                        "${points.size}",
-                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 14.sp, fontWeight = FontWeight.Bold),
-                        color = ColorCyan
-                    )
-                }
-            }
+        // Practice Mental Recall Action Button
+        Button(
+            onClick = onOpenRecall,
+            modifier = Modifier.fillMaxWidth().height(48.dp),
+            shape = RoundedCornerShape(12.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = ColorCyan)
+        ) {
+            Icon(Icons.Filled.Psychology, contentDescription = null, tint = ColorTextOnCyan, modifier = Modifier.size(20.dp))
+            Spacer(Modifier.width(8.dp))
+            Text("🧠 Test Memory of This Route (City Recall)", color = ColorTextOnCyan, fontWeight = FontWeight.Bold, fontSize = 13.sp)
         }
     }
 }

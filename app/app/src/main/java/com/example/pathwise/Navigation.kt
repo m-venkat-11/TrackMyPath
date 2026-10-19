@@ -37,6 +37,8 @@ import com.example.pathwise.ui.map.MapScreen
 import com.example.pathwise.ui.settings.SettingsScreen
 import kotlinx.coroutines.launch
 
+import com.example.pathwise.service.LiveLocationManager
+
 // ── Screen Definitions ────────────────────────────────────────────────────────
 sealed class Screen {
     data object Home : Screen()
@@ -59,7 +61,9 @@ fun MainNavigation() {
     val journeys by journeyRepo.journeysList.collectAsState()
     val activeJourney by JourneyTrackingService.currentJourney.collectAsState()
     val trackingState by JourneyTrackingService.trackingState.collectAsState()
-    val currentLocation by JourneyTrackingService.currentLocation.collectAsState()
+    val serviceLocation by JourneyTrackingService.currentLocation.collectAsState()
+    val liveLocation by LiveLocationManager.currentLocation.collectAsState()
+    val currentLocation = serviceLocation ?: liveLocation
     val activePoints by journeyRepo.activePoints.collectAsState()
     val landmarks by landmarkRepo.landmarks.collectAsState()
 
@@ -69,6 +73,7 @@ fun MainNavigation() {
     // Dialog states
     var showPermissionDialog by remember { mutableStateOf(false) }
     var interruptedJourney by remember { mutableStateOf<Journey?>(null) }
+    var pendingLocationAction by remember { mutableStateOf("START") }
 
     // Backstack management: stable, zero-dependency, crash-free
     val backStack = remember { mutableStateListOf<Screen>(Screen.Home) }
@@ -77,20 +82,10 @@ fun MainNavigation() {
         backStack.removeAt(backStack.size - 1)
     }
 
-    // Initial data refresh & interrupted journey check
-    LaunchedEffect(Unit) {
-        try {
-            journeyRepo.refreshJourneys()
-            landmarkRepo.refresh()
-            landmarkRepo.seedDemoLandmarks()
-
-            val interrupted = journeyRepo.checkInterruptedJourney()
-            if (interrupted != null) {
-                interruptedJourney = interrupted
-            }
-        } catch (e: Throwable) {
-            android.util.Log.e("PathWise", "Database init warning: ${e.message}", e)
-        }
+    fun hasLocationPermissions(): Boolean {
+        val fine = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        val coarse = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        return fine || coarse
     }
 
     // Permission launcher
@@ -101,26 +96,44 @@ fun MainNavigation() {
         val coarseGranted = grants[Manifest.permission.ACCESS_COARSE_LOCATION] == true
 
         if (fineGranted || coarseGranted) {
-            val intent = Intent(context, JourneyTrackingService::class.java).apply {
-                action = JourneyTrackingService.ACTION_START
-            }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(intent)
-            } else {
-                context.startService(intent)
+            LiveLocationManager.startWatching(context)
+            if (pendingLocationAction == "START") {
+                val intent = Intent(context, JourneyTrackingService::class.java).apply {
+                    action = JourneyTrackingService.ACTION_START
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    context.startForegroundService(intent)
+                } else {
+                    context.startService(intent)
+                }
             }
             backStack.add(Screen.Map)
         }
     }
 
-    fun hasLocationPermissions(): Boolean {
-        val fine = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
-        val coarse = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
-        return fine || coarse
+    // Initial data refresh, interrupted journey check & immediate live GPS watch
+    LaunchedEffect(Unit) {
+        try {
+            journeyRepo.refreshJourneys()
+            landmarkRepo.refresh()
+            landmarkRepo.seedDemoLandmarks()
+
+            val interrupted = journeyRepo.checkInterruptedJourney()
+            if (interrupted != null) {
+                interruptedJourney = interrupted
+            }
+
+            if (hasLocationPermissions()) {
+                LiveLocationManager.startWatching(context)
+            }
+        } catch (e: Throwable) {
+            android.util.Log.e("PathWise", "Database init warning: ${e.message}", e)
+        }
     }
 
     fun requestTrackingStart() {
         if (hasLocationPermissions()) {
+            LiveLocationManager.startWatching(context)
             val intent = Intent(context, JourneyTrackingService::class.java).apply {
                 action = JourneyTrackingService.ACTION_START
             }
@@ -131,6 +144,7 @@ fun MainNavigation() {
             }
             backStack.add(Screen.Map)
         } else {
+            pendingLocationAction = "START"
             showPermissionDialog = true
         }
     }
@@ -176,7 +190,15 @@ fun MainNavigation() {
                                 }
                                 backStack.add(Screen.Map)
                             },
-                            onExploreMap = { backStack.add(Screen.Map) },
+                            onExploreMap = {
+                                if (hasLocationPermissions()) {
+                                    LiveLocationManager.startWatching(context)
+                                    backStack.add(Screen.Map)
+                                } else {
+                                    pendingLocationAction = "EXPLORE"
+                                    showPermissionDialog = true
+                                }
+                            },
                             onOpenJourneys = { backStack.add(Screen.Journeys) },
                             onOpenLearn = { backStack.add(Screen.Learn) },
                             onOpenSettings = { backStack.add(Screen.Settings) }
@@ -252,6 +274,9 @@ fun MainNavigation() {
                                 points = detailPoints,
                                 onNavigateBack = {
                                     if (backStack.size > 1) backStack.removeAt(backStack.size - 1)
+                                },
+                                onOpenRecall = {
+                                    backStack.add(Screen.Learn)
                                 }
                             )
                         }

@@ -149,8 +149,10 @@ class JourneyTrackingService : Service(), LocationListener {
             if (isDemo) {
                 startDemoSimulation(journey.id)
             } else {
-                val immediateLoc = fetchImmediateLastKnownLocation()
+                LiveLocationManager.startWatching(applicationContext)
+                val immediateLoc = LiveLocationManager.currentLocation.value ?: fetchImmediateLastKnownLocation()
                 if (immediateLoc != null) {
+                    _currentLocation.value = immediateLoc
                     processNewLocation(immediateLoc)
                 }
                 registerLocationUpdates()
@@ -222,22 +224,39 @@ class JourneyTrackingService : Service(), LocationListener {
         }
     }
 
+    private var liveLocJob: Job? = null
+
     private fun registerLocationUpdates() {
+        liveLocJob?.cancel()
+        liveLocJob = serviceScope.launch {
+            LiveLocationManager.currentLocation.collect { loc ->
+                if (loc != null) {
+                    _currentLocation.value = loc
+                    if (_trackingState.value == TrackingState.WAITING_FOR_GPS) {
+                        _trackingState.value = TrackingState.RECORDING
+                    }
+                    if (_trackingState.value == TrackingState.RECORDING) {
+                        processNewLocation(loc)
+                    }
+                }
+            }
+        }
+
         val lm = locationManager ?: return
         try {
             if (lm.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
                 lm.requestLocationUpdates(
                     LocationManager.GPS_PROVIDER,
-                    1500L,
-                    1.5f,
+                    1200L,
+                    1.0f,
                     this
                 )
             }
             if (lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
                 lm.requestLocationUpdates(
                     LocationManager.NETWORK_PROVIDER,
-                    2500L,
-                    3f,
+                    2000L,
+                    2.0f,
                     this
                 )
             }
@@ -251,6 +270,7 @@ class JourneyTrackingService : Service(), LocationListener {
         val journeyId = activeJourneyId ?: return
         _trackingState.value = TrackingState.PAUSED
         locationManager?.removeUpdates(this)
+        liveLocJob?.cancel()
         demoSimJob?.cancel()
         serviceScope.launch {
             repository.pauseJourney(journeyId)
@@ -271,6 +291,7 @@ class JourneyTrackingService : Service(), LocationListener {
     private fun stopTracking() {
         val journeyId = activeJourneyId
         locationManager?.removeUpdates(this)
+        liveLocJob?.cancel()
         demoSimJob?.cancel()
         tickerJob?.cancel()
         _trackingState.value = TrackingState.IDLE
