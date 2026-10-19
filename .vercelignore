@@ -1,0 +1,5 @@
+app/
+.gradle/
+*.apk
+*.aab
+.git/
