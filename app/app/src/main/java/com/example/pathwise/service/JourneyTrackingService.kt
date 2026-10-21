@@ -183,8 +183,8 @@ class JourneyTrackingService : Service(), LocationListener {
     private fun startDemoSimulation(journeyId: String) {
         demoSimJob?.cancel()
         demoSimJob = serviceScope.launch {
-            val baseLat = _currentLocation.value?.latitude ?: 12.9716
-            val baseLon = _currentLocation.value?.longitude ?: 77.5946
+            val baseLat = _currentLocation.value?.latitude ?: LiveLocationManager.currentLocation.value?.latitude ?: 17.7338
+            val baseLon = _currentLocation.value?.longitude ?: LiveLocationManager.currentLocation.value?.longitude ?: 83.3323
 
             // 15 realistic coordinates along an urban walking route
             val deltas = listOf(

@@ -1,12 +1,15 @@
 /**
- * PathWise Sci-Fi Sound Synthesizer via Web Audio API.
- * Provides instant, zero-latency futuristic acoustic feedback.
+ * PathWise Sci-Fi Sound Synthesizer via Web Audio API & Speech Synthesis.
+ * Provides instant, zero-latency futuristic acoustic feedback and hands-free voice alerts.
  */
 
 class AudioSynthesizer {
   constructor() {
     this.ctx = null;
     this.enabled = true;
+    this.voiceEnabled = true;
+    this.lastSpokenText = '';
+    this.lastSpokenTime = 0;
   }
 
   init() {
@@ -21,6 +24,10 @@ class AudioSynthesizer {
 
   setEnabled(val) {
     this.enabled = val;
+  }
+
+  setVoiceEnabled(val) {
+    this.voiceEnabled = val;
   }
 
   playBeep(freq = 880, duration = 0.05, type = 'sine') {
@@ -106,8 +113,48 @@ class AudioSynthesizer {
     } catch (_) {}
   }
 
+  playSectorChime() {
+    if (!this.enabled) return;
+    try {
+      this.init();
+      if (!this.ctx) return;
+      const now = this.ctx.currentTime;
+      [440, 554.37, 659.25, 880].forEach((f, i) => {
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(f, now + i * 0.05);
+        gain.gain.setValueAtTime(0.06, now + i * 0.05);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + i * 0.05 + 0.2);
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        osc.start(now + i * 0.05);
+        osc.stop(now + i * 0.05 + 0.2);
+      });
+    } catch (_) {}
+  }
+
   playLaserLock() {
     this.playBeep(1760, 0.09, 'sawtooth');
+  }
+
+  speak(text) {
+    if (!this.voiceEnabled || !('speechSynthesis' in window)) return;
+    const now = Date.now();
+    if (text === this.lastSpokenText && now - this.lastSpokenTime < 12000) return;
+    this.lastSpokenText = text;
+    this.lastSpokenTime = now;
+
+    try {
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.rate = 1.05;
+      utterance.pitch = 1.0;
+      utterance.volume = 0.9;
+      window.speechSynthesis.speak(utterance);
+    } catch (e) {
+      console.warn('SpeechSynthesis error:', e);
+    }
   }
 }
 

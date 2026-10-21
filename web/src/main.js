@@ -6,7 +6,15 @@
 import { db } from './db.js';
 import { tracker, formatDistance, formatDuration } from './tracker.js';
 import { HolographicMapController } from './map.js';
-import { reverseGeocode, searchPlaces } from './geocoding.js';
+import {
+  reverseGeocode,
+  searchPlaces,
+  getAreaDetails,
+  fetchNearbyLandmarks,
+  calculateBearing,
+  bearingToCardinal,
+  calculateDistance
+} from './geocoding.js';
 import { learnArena } from './learn.js';
 import { sound } from './audio.js';
 
@@ -20,6 +28,18 @@ let replayStepIndex = 0;
 let isReplayPlaying = false;
 let replayPlaybackSpeed = 1;
 let currentClickCoords = null;
+
+// Live In-Journey Spatial Awareness & Learning State
+let currentAreaDetails = null;
+let previousSuburb = null;
+let currentHeading = 0;
+let discoveredSectors = new Set();
+let sessionMasteryXP = 0;
+let liveNearbyLandmarks = [];
+let tripOriginStreet = null;
+let lastNearbyScanCoords = null;
+let currentApproachingLandmark = null;
+let activeDockTab = 'telemetry';
 
 // Clock Loop
 function startClock() {
@@ -304,6 +324,171 @@ function stopReplayAnimation() {
   document.getElementById('replayPauseIcon').style.display = 'none';
 }
 
+// Dock Tab Switching (Controls, Radar, Analysis & Quiz)
+function switchDockTab(tabKey) {
+  activeDockTab = tabKey;
+  sound.playTap();
+  document.querySelectorAll('.dock-tab-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.getAttribute('data-dock-tab') === tabKey);
+  });
+  const pTel = document.getElementById('dockPanelTelemetry');
+  const pRad = document.getElementById('dockPanelRadar');
+  const pLrn = document.getElementById('dockPanelLearning');
+  if (pTel) pTel.style.display = tabKey === 'telemetry' ? 'block' : 'none';
+  if (pRad) pRad.style.display = tabKey === 'radar' ? 'block' : 'none';
+  if (pLrn) pLrn.style.display = tabKey === 'learning' ? 'block' : 'none';
+}
+
+// Render Nearby Landmarks in Dock Radar
+function renderRadarLandmarksList(places) {
+  const container = document.getElementById('radarLandmarksList');
+  if (!container) return;
+
+  if (!places || places.length === 0) {
+    container.innerHTML = `
+      <div class="radar-empty-state">No prominent landmarks detected within 1.2km radius.</div>
+    `;
+    return;
+  }
+
+  container.innerHTML = places.map(p => `
+    <div class="radar-place-item" data-id="${p.id}">
+      <div class="radar-place-info">
+        <span class="radar-place-name">${p.name}</span>
+        <div class="radar-place-meta">
+          <span class="radar-place-category">${p.category}</span>
+          <span>•</span>
+          <span class="radar-place-dist">${p.distanceMeters}m ${p.cardinalDirection}</span>
+        </div>
+      </div>
+      <button class="btn-pin-mini" data-lat="${p.latitude}" data-lon="${p.longitude}" data-name="${encodeURIComponent(p.name)}" data-cat="${encodeURIComponent(p.category)}">
+        + Pin
+      </button>
+    </div>
+  `).join('');
+
+  container.querySelectorAll('.btn-pin-mini').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const lat = parseFloat(btn.getAttribute('data-lat'));
+      const lon = parseFloat(btn.getAttribute('data-lon'));
+      const name = decodeURIComponent(btn.getAttribute('data-name'));
+      const cat = decodeURIComponent(btn.getAttribute('data-cat'));
+      await pinNearbyLandmark({ name, category: cat, latitude: lat, longitude: lon });
+      btn.textContent = '✓ Pinned';
+      btn.style.borderColor = '#10B981';
+      btn.style.color = '#10B981';
+    });
+  });
+}
+
+// 1-Tap Save Landmark to Mental Map
+async function pinNearbyLandmark(place) {
+  await db.saveLandmark({
+    id: 'lm-' + Date.now(),
+    name: place.name,
+    category: place.category || 'Landmark',
+    notes: 'Discovered during active journey',
+    latitude: place.latitude,
+    longitude: place.longitude,
+    createdAt: Date.now()
+  });
+
+  const updated = await db.getAllLandmarks();
+  mainMap.setLandmarks(updated);
+  sound.playSuccess();
+  learnArena.addScore(15);
+  sessionMasteryXP += 15;
+  const sessEl = document.getElementById('analysisSessionXP');
+  if (sessEl) sessEl.textContent = `+${sessionMasteryXP} XP`;
+}
+
+// In-Journey Micro-Recall Quiz Logic
+function launchInJourneyQuiz() {
+  sound.playTap();
+  const modal = document.getElementById('inJourneyQuizModal');
+  const qEl = document.getElementById('inJourneyQuizQuestion');
+  const optsEl = document.getElementById('inJourneyQuizOptions');
+  const fbEl = document.getElementById('inJourneyQuizFeedback');
+  if (!modal || !qEl || !optsEl || !fbEl) return;
+
+  fbEl.style.display = 'none';
+  fbEl.textContent = '';
+  modal.style.display = 'flex';
+
+  // Generate 1 of 3 dynamic questions based on current active journey
+  const questionType = Math.floor(Math.random() * 3);
+  let questionText = '';
+  let options = [];
+  let correctIndex = 0;
+
+  if (questionType === 0 && tripOriginStreet) {
+    questionText = 'Where did you start this current journey?';
+    const distractors = ['MG Road Promenade', 'Residency Road', 'Old Airport Road', '100 Feet Corridor', 'Brigade Boulevard'].filter(s => s !== tripOriginStreet);
+    options = [tripOriginStreet, distractors[0], distractors[1], distractors[2]].sort(() => Math.random() - 0.5);
+    correctIndex = options.indexOf(tripOriginStreet);
+  } else if (questionType === 1 && liveNearbyLandmarks.length > 0) {
+    const target = liveNearbyLandmarks[0];
+    questionText = `Which landmark is closest to your current position (~${target.distanceMeters}m ${target.cardinalDirection})?`;
+    const distractors = ['Central Library Tower', 'Botanical Conservatory', 'Grand Trinity Cathedral', 'City Art Pavilion'].filter(s => s !== target.name);
+    options = [target.name, distractors[0], distractors[1], distractors[2]].sort(() => Math.random() - 0.5);
+    correctIndex = options.indexOf(target.name);
+  } else {
+    const card = bearingToCardinal(currentHeading);
+    questionText = `What general cardinal direction is your route heading right now?`;
+    const cardinals = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+    const distractors = cardinals.filter(c => c !== card);
+    options = [card, distractors[0], distractors[1], distractors[2]].sort(() => Math.random() - 0.5);
+    correctIndex = options.indexOf(card);
+  }
+
+  qEl.textContent = questionText;
+  optsEl.innerHTML = options.map((opt, i) => `
+    <button class="btn-quiz-opt" data-index="${i}">
+      <span>${opt}</span>
+      <span style="font-family:'JetBrains Mono'; font-size:0.75rem; color:#64748B;">0${i + 1}</span>
+    </button>
+  `).join('');
+
+  optsEl.querySelectorAll('.btn-quiz-opt').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const selected = parseInt(btn.getAttribute('data-index'), 10);
+      const isCorrect = selected === correctIndex;
+
+      optsEl.querySelectorAll('.btn-quiz-opt').forEach((b, idx) => {
+        b.disabled = true;
+        if (idx === correctIndex) b.classList.add('correct');
+        else if (idx === selected) b.classList.add('wrong');
+      });
+
+      if (isCorrect) {
+        sound.playSuccess();
+        learnArena.addScore(20);
+        sessionMasteryXP += 20;
+        const sessEl = document.getElementById('analysisSessionXP');
+        if (sessEl) sessEl.textContent = `+${sessionMasteryXP} XP`;
+
+        fbEl.style.display = 'block';
+        fbEl.style.background = 'rgba(16, 185, 129, 0.2)';
+        fbEl.style.border = '1px solid #10B981';
+        fbEl.style.color = '#10B981';
+        fbEl.textContent = '★ SPOT ON! +20 XP awarded to Spatial Recall Mastery!';
+      } else {
+        sound.playBeep(330, 0.2, 'sawtooth');
+        fbEl.style.display = 'block';
+        fbEl.style.background = 'rgba(239, 68, 68, 0.2)';
+        fbEl.style.border = '1px solid #EF4444';
+        fbEl.style.color = '#EF4444';
+        fbEl.textContent = 'Incorrect orientation. The correct answer was highlighted in green.';
+      }
+
+      setTimeout(() => {
+        modal.style.display = 'none';
+      }, 2500);
+    });
+  });
+}
+
 // Telemetry Listener Callback
 function setupTelemetrySubscriber() {
   tracker.subscribe(async (state) => {
@@ -336,14 +521,125 @@ function setupTelemetrySubscriber() {
       btnResume.style.display = 'none';
       btnStop.style.display = 'inline-flex';
 
-      if (dockDur) dockDur.textContent = formatDuration(journey.durationSeconds);
-      if (dockDist) dockDist.textContent = formatDistance(journey.recordedDistanceMeters);
-      if (dockSpeed) dockSpeed.textContent = lastLocation?.speed ? `${(lastLocation.speed * 3.6).toFixed(1)} km/h` : '4.8 km/h';
+      const distStr = formatDistance(journey.recordedDistanceMeters);
+      const durStr = formatDuration(journey.durationSeconds);
+      const speedKmH = lastLocation?.speed ? (lastLocation.speed * 3.6).toFixed(1) : '4.8';
+
+      if (dockDur) dockDur.textContent = durStr;
+      if (dockDist) dockDist.textContent = distStr;
+      if (dockSpeed) dockSpeed.textContent = `${speedKmH} km/h`;
       if (dockPts) dockPts.textContent = journey.pointCount;
 
+      // Update Map Route & Position
       if (lastLocation && mainMap) {
         mainMap.updateUserLocation(lastLocation.latitude, lastLocation.longitude);
         mainMap.setRoutePoints(points);
+      }
+
+      // Calculate Heading from trajectory
+      if (points.length >= 2) {
+        const p1 = points[points.length - 2];
+        const p2 = points[points.length - 1];
+        currentHeading = calculateBearing(p1.latitude, p1.longitude, p2.latitude, p2.longitude);
+      }
+
+      // In-Journey Live Pace & Rhythm Analysis
+      const paceEl = document.getElementById('analysisPace');
+      const rhythmEl = document.getElementById('analysisRhythm');
+      const sectorsEl = document.getElementById('analysisSectorsCount');
+      const sessionXpEl = document.getElementById('analysisSessionXP');
+
+      const speedVal = lastLocation?.speed || 1.35;
+      if (speedVal > 0.4) {
+        const paceSec = 1000 / speedVal;
+        const pm = Math.floor(paceSec / 60);
+        const ps = Math.floor(paceSec % 60);
+        if (paceEl) paceEl.textContent = `${pm}'${ps.toString().padStart(2, '0')}"/km`;
+      } else {
+        if (paceEl) paceEl.textContent = `--'--"/km`;
+      }
+
+      if (rhythmEl) {
+        if (speedVal < 0.5) rhythmEl.textContent = 'Stationary';
+        else if (speedVal < 2.0) rhythmEl.textContent = 'Walking Pace';
+        else if (speedVal < 4.5) rhythmEl.textContent = 'Jogging / Bike';
+        else rhythmEl.textContent = 'Vehicular Transit';
+      }
+
+      if (sectorsEl) sectorsEl.textContent = `${discoveredSectors.size}`;
+      if (sessionXpEl) sessionXpEl.textContent = `+${sessionMasteryXP} XP`;
+
+      // Live Spatial Bar Updates
+      const activeSpeedEl = document.getElementById('hudActiveSpeed');
+      const activeHeadingEl = document.getElementById('hudActiveHeading');
+      const headingIcon = document.getElementById('hudHeadingIcon');
+
+      if (activeSpeedEl) activeSpeedEl.textContent = `${speedKmH} km/h`;
+      if (activeHeadingEl) activeHeadingEl.textContent = `${bearingToCardinal(currentHeading)} (${currentHeading}°)`;
+      if (headingIcon) headingIcon.style.transform = `rotate(${currentHeading}deg)`;
+
+      // Reverse geocode details & sector awareness
+      if (lastLocation) {
+        const details = await getAreaDetails(lastLocation.latitude, lastLocation.longitude);
+        if (details) {
+          currentAreaDetails = details;
+          if (!tripOriginStreet && details.street) {
+            tripOriginStreet = details.street;
+          }
+
+          const streetEl = document.getElementById('hudActiveStreet');
+          const suburbEl = document.getElementById('hudActiveSuburb');
+          if (streetEl) streetEl.textContent = details.formattedHeadline;
+          if (suburbEl) suburbEl.textContent = details.formattedSubtitle;
+
+          // Sector Traversal Detection
+          if (details.suburb && previousSuburb && details.suburb.toLowerCase() !== previousSuburb.toLowerCase()) {
+            discoveredSectors.add(details.suburb);
+            const toast = document.getElementById('hudSectorToast');
+            const nameEl = document.getElementById('hudSectorName');
+            if (toast && nameEl) {
+              nameEl.textContent = details.suburb;
+              toast.style.display = 'flex';
+              sound.playSectorChime();
+              sound.speak(`Now traversing ${details.suburb}`);
+              learnArena.addScore(25);
+              sessionMasteryXP += 25;
+              if (sessionXpEl) sessionXpEl.textContent = `+${sessionMasteryXP} XP`;
+              setTimeout(() => { toast.style.display = 'none'; }, 4500);
+            }
+          }
+          if (details.suburb) previousSuburb = details.suburb;
+        }
+
+        // Periodic Nearby Landmarks Radar Scan (every ~80m or initial)
+        if (!lastNearbyScanCoords || calculateDistance(lastNearbyScanCoords.lat, lastNearbyScanCoords.lon, lastLocation.latitude, lastLocation.longitude) > 80) {
+          lastNearbyScanCoords = { lat: lastLocation.latitude, lon: lastLocation.longitude };
+          fetchNearbyLandmarks(lastLocation.latitude, lastLocation.longitude).then(places => {
+            liveNearbyLandmarks = places;
+            const badge = document.getElementById('radarCountBadge');
+            if (badge) badge.textContent = places.length;
+            renderRadarLandmarksList(places);
+
+            // Approaching Landmark Proximity Alert (within 150m)
+            const closest = places[0];
+            const proxBanner = document.getElementById('hudProximityBanner');
+            const proxTitle = document.getElementById('hudProximityTitle');
+            const proxDist = document.getElementById('hudProximityDist');
+
+            if (closest && closest.distanceMeters <= 150) {
+              currentApproachingLandmark = closest;
+              if (proxBanner && proxTitle && proxDist) {
+                proxTitle.textContent = `${closest.name} (${closest.category})`;
+                proxDist.textContent = `${closest.distanceMeters}m Ahead (${closest.cardinalDirection})`;
+                proxBanner.style.display = 'flex';
+              }
+              sound.speak(`Approaching ${closest.name}, ${closest.distanceMeters} meters ahead`);
+            } else if (proxBanner) {
+              proxBanner.style.display = 'none';
+              currentApproachingLandmark = null;
+            }
+          });
+        }
       }
     } else if (state.state === 'PAUSED') {
       if (statusText) statusText.textContent = 'PAUSED';
@@ -363,21 +659,10 @@ function setupTelemetrySubscriber() {
       if (dockDist) dockDist.textContent = '0.00 km';
       if (dockSpeed) dockSpeed.textContent = '0.0 km/h';
       if (dockPts) dockPts.textContent = '0';
-    }
 
-    // Reverse Geocode Street Name for current fix
-    if (lastLocation) {
-      const street = await reverseGeocode(lastLocation.latitude, lastLocation.longitude);
-      if (street) {
-        const badge = document.getElementById('currentStreetNameText');
-        if (badge) badge.textContent = street;
-        const homeLoc = document.getElementById('homeDetectedLocality');
-        if (homeLoc) homeLoc.textContent = street.toUpperCase();
-      }
-      const homeCoords = document.getElementById('homeDetectedCoords');
-      if (homeCoords) {
-        homeCoords.textContent = `${lastLocation.latitude.toFixed(4)}° N, ${lastLocation.longitude.toFixed(4)}° E`;
-      }
+      const proxBanner = document.getElementById('hudProximityBanner');
+      if (proxBanner) proxBanner.style.display = 'none';
+      currentApproachingLandmark = null;
     }
   });
 }
@@ -391,33 +676,180 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Initialize DB and Seed Demo Data
   await db.seedDemoDataIfEmpty();
 
-  // Initialize Main Holographic Map (Google Maps default)
-  mainMap = new HolographicMapController('leafletMap');
-  mainMap.init([12.9716, 77.5946], 15);
+  let isSatelliteGpsLocked = false;
+  let initialCenter = [17.7338, 83.3323]; // Default to user's real sector
 
-  // Proactively acquire real user GPS location and center map
-  if ('geolocation' in navigator) {
-    navigator.geolocation.getCurrentPosition(
-      async (pos) => {
-        const { latitude, longitude } = pos.coords;
-        mainMap.updateUserLocation(latitude, longitude);
-        mainMap.recenter(latitude, longitude, 16);
-        const street = await reverseGeocode(latitude, longitude);
-        if (street) {
-          const badge = document.getElementById('currentStreetNameText');
-          if (badge) badge.textContent = street;
-          const homeLoc = document.getElementById('homeDetectedLocality');
-          if (homeLoc) homeLoc.textContent = street.toUpperCase();
+  // Initialize Main Holographic Map
+  mainMap = new HolographicMapController('leafletMap');
+  mainMap.init(initialCenter, 15);
+
+  const homeWarningBanner = document.getElementById('homeGpsWarningBanner');
+  const mapWarningStrip = document.getElementById('hudMapGpsAlertStrip');
+  const homeBadge = document.getElementById('homeGpsBadge');
+  const homeLoc = document.getElementById('homeDetectedLocality');
+  const homeCoords = document.getElementById('homeDetectedCoords');
+
+  function showGpsAlert(isError, title, msg) {
+    if (isSatelliteGpsLocked) return;
+    if (homeWarningBanner) {
+      homeWarningBanner.style.display = 'flex';
+      const t = document.getElementById('homeGpsWarningTitle');
+      const m = document.getElementById('homeGpsWarningMsg');
+      if (t) t.textContent = title;
+      if (m) m.textContent = msg;
+    }
+    if (mapWarningStrip) {
+      mapWarningStrip.style.display = 'flex';
+      const m = document.getElementById('hudMapGpsAlertText');
+      if (m) m.textContent = msg;
+    }
+  }
+
+  function hideGpsAlert() {
+    if (homeWarningBanner) homeWarningBanner.style.display = 'none';
+    if (mapWarningStrip) mapWarningStrip.style.display = 'none';
+  }
+
+  // Fast IP city detection as an interim fallback while GPS resolves
+  try {
+    fetch('https://ipapi.co/json/').then(r => r.json()).then(data => {
+      if (!isSatelliteGpsLocked && data && data.latitude && data.longitude) {
+        window.__userInitialCoords = { lat: data.latitude, lon: data.longitude };
+        const cityLabel = (data.city ? `${data.city}, ${data.region || data.country_name}` : 'DETECTED SECTOR').toUpperCase();
+        if (homeLoc) homeLoc.textContent = cityLabel;
+        if (homeCoords) homeCoords.textContent = `${data.latitude.toFixed(4)}° N, ${data.longitude.toFixed(4)}° E`;
+        if (homeBadge) homeBadge.textContent = 'IP ESTIMATE';
+
+        showGpsAlert(
+          false,
+          `Approximate Network Location (${data.city || 'Regional'})`,
+          `Showing ISP regional gateway (~${data.city || 'Cellular'}). Tap 'ALLOW LIVE GPS' to lock onto your real house/street.`
+        );
+
+        if (!tracker.lastLocation && mainMap) {
+          mainMap.recenter(data.latitude, data.longitude, 14);
+          mainMap.updateUserLocation(data.latitude, data.longitude);
         }
-        const homeCoords = document.getElementById('homeDetectedCoords');
-        if (homeCoords) {
-          homeCoords.textContent = `${latitude.toFixed(4)}° N, ${longitude.toFixed(4)}° E`;
+      }
+    }).catch(() => {});
+  } catch (_) {}
+
+  // Function to apply precision GPS fix
+  const onGpsSuccess = async (pos) => {
+    isSatelliteGpsLocked = true;
+    hideGpsAlert();
+
+    const { latitude, longitude, accuracy } = pos.coords;
+    window.__userInitialCoords = { lat: latitude, lon: longitude };
+    tracker.lastLocation = {
+      latitude,
+      longitude,
+      speed: pos.coords.speed || 0,
+      accuracy: accuracy || 4.0
+    };
+
+    mainMap?.updateUserLocation(latitude, longitude);
+    mainMap?.recenter(latitude, longitude, 17);
+
+    if (homeBadge) homeBadge.textContent = `GPS LOCK (±${Math.round(accuracy)}m)`;
+
+    const details = await getAreaDetails(latitude, longitude);
+    if (details) {
+      currentAreaDetails = details;
+      if (homeLoc) homeLoc.textContent = details.formattedHeadline.toUpperCase();
+      const streetEl = document.getElementById('hudActiveStreet');
+      const suburbEl = document.getElementById('hudActiveSuburb');
+      if (streetEl) streetEl.textContent = details.formattedHeadline;
+      if (suburbEl) suburbEl.textContent = details.formattedSubtitle;
+    }
+
+    if (homeCoords) {
+      homeCoords.textContent = `${latitude.toFixed(4)}° N, ${longitude.toFixed(4)}° E`;
+    }
+  };
+
+  // Function for user-driven GPS permission request
+  function requestActiveGpsFix() {
+    if (!('geolocation' in navigator)) {
+      alert('Geolocation is not supported by your browser.');
+      return;
+    }
+    sound.playTap();
+    if (homeBadge) homeBadge.textContent = 'ACQUIRING GPS...';
+    
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        onGpsSuccess(pos);
+        sound.playSuccess();
+      },
+      (err) => {
+        console.warn('Direct GPS request error:', err.message);
+        if (err.code === 1) { // PERMISSION_DENIED
+          showGpsAlert(
+            true,
+            'Browser Location Permission Denied',
+            'Please tap the lock icon 🔒 in your browser address bar and set "Location" to Allow, or choose your city below.'
+          );
+          openSectorPicker();
+        } else {
+          showGpsAlert(
+            true,
+            'Satellite Signal Search Timed Out',
+            'Could not get immediate satellite lock. You can select your locality manually below.'
+          );
         }
       },
-      (err) => console.log('Geolocation init status:', err.message),
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 }
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
     );
   }
+
+  // Proactively attempt precision GPS location
+  if ('geolocation' in navigator) {
+    navigator.geolocation.getCurrentPosition(
+      onGpsSuccess,
+      (err) => {
+        console.warn('Proactive high-accuracy GPS error:', err.message);
+        if (err.code === 1) {
+          showGpsAlert(
+            true,
+            'Location Access Blocked By Browser',
+            'Showing estimated network location. Tap "ALLOW LIVE GPS" or the address bar 🔒 to enable real-time tracking.'
+          );
+        } else {
+          navigator.geolocation.getCurrentPosition(
+            onGpsSuccess,
+            (err2) => {
+              console.warn('Standard geolocation error:', err2.message);
+              showGpsAlert(
+                true,
+                'Satellite GNSS Searching',
+                'Device is searching for satellite fix. Tap "ALLOW LIVE GPS" to retry or pick your sector.'
+              );
+            },
+            { enableHighAccuracy: false, timeout: 15000, maximumAge: 60000 }
+          );
+        }
+      },
+      { enableHighAccuracy: true, timeout: 5000, maximumAge: 10000 }
+    );
+  }
+
+  // Listen to tracker.js custom events
+  window.addEventListener('pathwise-gps-success', (e) => {
+    if (e.detail) {
+      onGpsSuccess({ coords: e.detail });
+    }
+  });
+
+  window.addEventListener('pathwise-gps-error', (e) => {
+    if (e.detail?.code === 1) {
+      showGpsAlert(
+        true,
+        'GPS Tracking Permission Revoked',
+        'Your browser blocked GPS tracking. Click the address bar lock icon 🔒 to allow location.'
+      );
+    }
+  });
 
   const landmarks = await db.getAllLandmarks();
   mainMap.setLandmarks(landmarks);
@@ -469,7 +901,43 @@ document.addEventListener('DOMContentLoaded', async () => {
     learnArena.render();
   });
 
-  // Dock Buttons
+  // Dock Segmented Tabs
+  document.getElementById('dockTabTelemetry')?.addEventListener('click', () => switchDockTab('telemetry'));
+  document.getElementById('dockTabRadar')?.addEventListener('click', () => switchDockTab('radar'));
+  document.getElementById('dockTabLearning')?.addEventListener('click', () => switchDockTab('learning'));
+
+  // Quick Pin Proximity Landmark
+  document.getElementById('btnQuickPinProximity')?.addEventListener('click', async () => {
+    if (currentApproachingLandmark) {
+      await pinNearbyLandmark(currentApproachingLandmark);
+      const btn = document.getElementById('btnQuickPinProximity');
+      if (btn) {
+        btn.textContent = '✓';
+        btn.style.background = '#10B981';
+      }
+    }
+  });
+
+  // Voice Guidance Toggle
+  const btnVoice = document.getElementById('btnToggleVoice');
+  btnVoice?.addEventListener('click', () => {
+    sound.setVoiceEnabled(!sound.voiceEnabled);
+    btnVoice.classList.toggle('active', sound.voiceEnabled);
+    if (sound.voiceEnabled) {
+      sound.speak('Voice guidance active');
+    }
+  });
+
+  // In-Journey Micro-Quiz Buttons
+  document.getElementById('btnLaunchInJourneyQuiz')?.addEventListener('click', () => {
+    launchInJourneyQuiz();
+  });
+  document.getElementById('btnCloseInJourneyQuiz')?.addEventListener('click', () => {
+    const modal = document.getElementById('inJourneyQuizModal');
+    if (modal) modal.style.display = 'none';
+  });
+
+  // Dock Action Buttons
   document.getElementById('btnDockStart')?.addEventListener('click', () => tracker.startRealGPS());
   document.getElementById('btnDockSimulate')?.addEventListener('click', () => tracker.startVirtualSimulation());
   document.getElementById('btnDockPause')?.addEventListener('click', () => tracker.pause());
@@ -587,23 +1055,85 @@ document.addEventListener('DOMContentLoaded', async () => {
     mainMap.toggleMeasureMode(false);
   });
 
+  // ── Manual Sector Picker & Real GPS Grant Handlers ─────────────────────────
+  function openSectorPicker() {
+    sound.playTap();
+    const modal = document.getElementById('sectorPickerModal');
+    if (modal) modal.style.display = 'flex';
+  }
+
+  function applyManualSector(lat, lon, label) {
+    window.__userInitialCoords = { lat, lon };
+    tracker.lastLocation = {
+      latitude: lat,
+      longitude: lon,
+      speed: 0,
+      accuracy: 5.0
+    };
+    mainMap?.updateUserLocation(lat, lon);
+    mainMap?.recenter(lat, lon, 16);
+    hideGpsAlert();
+
+    if (homeBadge) homeBadge.textContent = 'SECTOR LOCKED';
+    if (homeLoc) homeLoc.textContent = label.toUpperCase();
+    if (homeCoords) homeCoords.textContent = `${lat.toFixed(4)}° N, ${lon.toFixed(4)}° E`;
+
+    getAreaDetails(lat, lon).then(details => {
+      if (details) {
+        currentAreaDetails = details;
+        const streetEl = document.getElementById('hudActiveStreet');
+        const suburbEl = document.getElementById('hudActiveSuburb');
+        if (streetEl) streetEl.textContent = details.formattedHeadline;
+        if (suburbEl) suburbEl.textContent = details.formattedSubtitle;
+      }
+    });
+
+    const modal = document.getElementById('sectorPickerModal');
+    if (modal) modal.style.display = 'none';
+    sound.playSuccess();
+  }
+
+  document.getElementById('btnHomeGrantGps')?.addEventListener('click', requestActiveGpsFix);
+  document.getElementById('btnMapGrantGps')?.addEventListener('click', requestActiveGpsFix);
+  document.getElementById('btnHomeSetCity')?.addEventListener('click', openSectorPicker);
+  document.getElementById('btnMapSetCity')?.addEventListener('click', openSectorPicker);
+  document.getElementById('btnCloseSectorPicker')?.addEventListener('click', () => {
+    const modal = document.getElementById('sectorPickerModal');
+    if (modal) modal.style.display = 'none';
+  });
+
+  // Sector Quick Chips
+  document.querySelectorAll('.sector-chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      document.querySelectorAll('.sector-chip').forEach(c => c.classList.remove('active'));
+      chip.classList.add('active');
+      const lat = parseFloat(chip.getAttribute('data-lat'));
+      const lon = parseFloat(chip.getAttribute('data-lon'));
+      const name = chip.getAttribute('data-name') || chip.textContent;
+      applyManualSector(lat, lon, name);
+    });
+  });
+
+  // Sector Custom Search Submit
+  document.getElementById('btnSearchSectorSubmit')?.addEventListener('click', async () => {
+    const q = document.getElementById('sectorSearchInput')?.value?.trim();
+    if (!q) return;
+    const places = await searchPlaces(q);
+    if (places && places.length > 0) {
+      applyManualSector(places[0].lat, places[0].lon, places[0].name);
+    } else {
+      alert(`Could not resolve location for "${q}". Try another landmark or city name.`);
+    }
+  });
+
   // Recenter GPS
   document.getElementById('btnRecenterGPS')?.addEventListener('click', () => {
     sound.playTap();
     if (tracker.lastLocation) {
-      mainMap.recenter(tracker.lastLocation.latitude, tracker.lastLocation.longitude);
+      mainMap.recenter(tracker.lastLocation.latitude, tracker.lastLocation.longitude, 17);
       mainMap.updateUserLocation(tracker.lastLocation.latitude, tracker.lastLocation.longitude);
-    } else if ('geolocation' in navigator) {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          mainMap.updateUserLocation(pos.coords.latitude, pos.coords.longitude);
-          mainMap.recenter(pos.coords.latitude, pos.coords.longitude, 17);
-        },
-        (err) => alert('Unable to acquire GPS fix: ' + err.message),
-        { enableHighAccuracy: true, timeout: 8000 }
-      );
     } else {
-      mainMap.recenter(12.9716, 77.5946);
+      requestActiveGpsFix();
     }
   });
 
@@ -637,7 +1167,8 @@ document.addEventListener('DOMContentLoaded', async () => {
           row.addEventListener('click', () => {
             const lat = parseFloat(row.getAttribute('data-lat'));
             const lon = parseFloat(row.getAttribute('data-lon'));
-            mainMap.recenter(lat, lon, 17);
+            const name = row.textContent.replace('📍', '').trim();
+            applyManualSector(lat, lon, name);
             searchDropdown.style.display = 'none';
             searchInput.value = '';
             searchClear.style.display = 'none';

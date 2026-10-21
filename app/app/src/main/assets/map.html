@@ -199,9 +199,25 @@
     </div>
 
     <script>
-        var defaultLat = 12.9716;
-        var defaultLon = 77.5946;
-        var defaultZoom = 15;
+        var defaultLat = 17.7338;
+        var defaultLon = 83.3323;
+        var defaultZoom = 16;
+
+        try {
+            if (window.AndroidBridge && window.AndroidBridge.getInitialCoords) {
+                var coordsStr = window.AndroidBridge.getInitialCoords();
+                if (coordsStr && coordsStr.indexOf(',') !== -1) {
+                    var parts = coordsStr.split(',');
+                    var pLat = parseFloat(parts[0]);
+                    var pLon = parseFloat(parts[1]);
+                    if (!isNaN(pLat) && !isNaN(pLon)) {
+                        defaultLat = pLat;
+                        defaultLon = pLon;
+                        defaultZoom = 17;
+                    }
+                }
+            }
+        } catch (e) {}
 
         var map = L.map('map', {
             center: [defaultLat, defaultLon],

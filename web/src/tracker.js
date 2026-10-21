@@ -95,33 +95,66 @@ class TrackingManager {
     this.startTicker();
 
     if ('geolocation' in navigator) {
+      const handlePos = (pos) => {
+        if (this.state !== 'RECORDING') return;
+        window.dispatchEvent(new CustomEvent('pathwise-gps-success', { detail: pos.coords }));
+        this.processLocationFix({
+          latitude: pos.coords.latitude,
+          longitude: pos.coords.longitude,
+          altitude: pos.coords.altitude || 30,
+          speed: pos.coords.speed || 1.35,
+          accuracy: pos.coords.accuracy || 4.0,
+          timestamp: pos.timestamp || Date.now()
+        });
+      };
+
       this.geoWatchId = navigator.geolocation.watchPosition(
-        (pos) => {
-          if (this.state !== 'RECORDING') return;
-          this.processLocationFix({
-            latitude: pos.coords.latitude,
-            longitude: pos.coords.longitude,
-            altitude: pos.coords.altitude || 900,
-            speed: pos.coords.speed || 1.35,
-            accuracy: pos.coords.accuracy || 4.0,
-            timestamp: pos.timestamp || Date.now()
-          });
+        handlePos,
+        (err) => {
+          console.warn('High-accuracy GPS watch error, falling back to standard accuracy:', err.message);
+          window.dispatchEvent(new CustomEvent('pathwise-gps-error', { detail: { code: err.code, message: err.message } }));
+          // Fallback to standard accuracy (Wi-Fi/Cell)
+          if (this.state === 'RECORDING') {
+            this.geoWatchId = navigator.geolocation.watchPosition(
+              handlePos,
+              (err2) => {
+                console.warn('Standard accuracy GPS error:', err2.message);
+                window.dispatchEvent(new CustomEvent('pathwise-gps-error', { detail: { code: err2.code, message: err2.message } }));
+              },
+              { enableHighAccuracy: false, maximumAge: 5000, timeout: 20000 }
+            );
+          }
         },
-        (err) => console.warn('Geolocation watch error', err),
         { enableHighAccuracy: true, maximumAge: 1000, timeout: 10000 }
       );
+    } else {
+      window.dispatchEvent(new CustomEvent('pathwise-gps-error', { detail: { code: 2, message: 'Geolocation not supported in this browser' } }));
     }
     this.notify();
   }
 
-  startVirtualSimulation(baseLat = 12.9716, baseLon = 77.5946) {
+  startVirtualSimulation(baseLat = null, baseLon = null) {
     this.stop();
     sound.playStart();
+
+    // Dynamically anchor to real acquired position
+    if (!baseLat || !baseLon) {
+      if (this.lastLocation) {
+        baseLat = this.lastLocation.latitude;
+        baseLon = this.lastLocation.longitude;
+      } else if (window.__userInitialCoords) {
+        baseLat = window.__userInitialCoords.lat;
+        baseLon = window.__userInitialCoords.lon;
+      } else {
+        baseLat = 17.7338;
+        baseLon = 83.3323;
+      }
+    }
 
     this.state = 'RECORDING';
     this.currentJourney = {
       id: 'sim-journey-' + Date.now(),
-      title: 'Demo Walk: Downtown to Park Promenade',
+      title: 'Virtual Walk: Neighborhood Promenade',
       startTime: Date.now(),
       endTime: null,
       durationSeconds: 0,

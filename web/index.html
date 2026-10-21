@@ -140,11 +140,31 @@
               <!-- Locality Coordinate Telemetry Ticker -->
               <div class="hero-locality-ticker">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="ticker-pin-icon"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
-                <span class="ticker-locality-name" id="homeDetectedLocality">BANGALORE CENTRAL SECTOR</span>
+                <span class="ticker-locality-name" id="homeDetectedLocality">LOCATING REAL POSITION...</span>
                 <span class="ticker-divider">•</span>
-                <span class="ticker-coords" id="homeDetectedCoords">12.9716° N, 77.5946° E</span>
+                <span class="ticker-coords" id="homeDetectedCoords">Acquiring GNSS coordinates</span>
                 <span class="ticker-divider">•</span>
-                <span class="ticker-badge">GPS READY</span>
+                <span class="ticker-badge" id="homeGpsBadge">LOCKING GNSS</span>
+              </div>
+
+              <!-- GPS Diagnostic & Fallback Alert Banner -->
+              <div class="hud-gps-warning-banner" id="homeGpsWarningBanner" style="display: none;">
+                <div class="gps-warning-content">
+                  <div class="gps-warning-icon">⚠️</div>
+                  <div class="gps-warning-text">
+                    <strong id="homeGpsWarningTitle">Approximate Network IP Location Active</strong>
+                    <span id="homeGpsWarningMsg">Browser has not granted precision satellite GPS access. Showing ISP gateway.</span>
+                  </div>
+                </div>
+                <div class="gps-warning-actions">
+                  <button class="btn-sm btn-hud-primary" id="btnHomeGrantGps">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/></svg>
+                    <span>ALLOW LIVE GPS</span>
+                  </button>
+                  <button class="btn-sm btn-hud-outline" id="btnHomeSetCity">
+                    <span>SET MY CITY</span>
+                  </button>
+                </div>
               </div>
 
               <p class="hero-motto">
@@ -337,6 +357,10 @@
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="22" y1="12" x2="18" y2="12"/><line x1="6" y1="12" x2="2" y2="12"/><line x1="12" y1="6" x2="12" y2="2"/><line x1="12" y1="22" x2="12" y2="18"/></svg>
                   <span class="toggle-text">GPS</span>
                 </button>
+                <button class="hud-toggle-btn active" id="btnToggleVoice" title="Hands-Free Voice Guidance & City Announcements">
+                  <span class="toggle-badge">🔊</span>
+                  <span class="toggle-text">VOICE</span>
+                </button>
                 <button class="hud-toggle-btn" id="btnOpenLayersMenu" title="Open Public Maps Layer Selector">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
                   <span class="toggle-text">LAYERS</span>
@@ -453,60 +477,156 @@
               <div class="measure-tip">Tap any 2 points on the map to measure straight-line distance.</div>
             </div>
 
-            <!-- Current Locality & Street Name Badge -->
-            <div class="current-street-badge hud-bracket-panel" id="streetNameBadge">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
-              <span id="currentStreetNameText">Acquiring locality coordinate lock...</span>
+            <!-- GPS Diagnostic & Fallback Alert Banner for Map HUD -->
+            <div class="hud-map-gps-alert-strip hud-bracket-panel" id="hudMapGpsAlertStrip" style="display: none;">
+              <div class="map-gps-alert-left">
+                <span class="alert-icon">⚠️</span>
+                <span class="alert-text" id="hudMapGpsAlertText">Using estimated network IP sector. Precision satellite GPS not yet allowed.</span>
+              </div>
+              <div class="map-gps-alert-actions">
+                <button class="btn-xs btn-hud-primary" id="btnMapGrantGps">ALLOW GPS</button>
+                <button class="btn-xs btn-hud-outline" id="btnMapSetCity">CHOOSE SECTOR</button>
+              </div>
             </div>
 
-            <!-- Bottom Tactical Tracking Dock -->
+            <!-- Live Area & Direction Awareness Bar -->
+            <div class="hud-spatial-awareness-bar hud-bracket-panel" id="hudSpatialBar">
+              <div class="spatial-left-col">
+                <div class="spatial-headline-row">
+                  <svg class="spatial-compass-arrow" id="hudHeadingIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="12 2 19 21 12 17 5 21 12 2"/></svg>
+                  <span class="spatial-street-name" id="hudActiveStreet">Acquiring live GPS fix...</span>
+                </div>
+                <div class="spatial-sub-row">
+                  <span class="spatial-suburb" id="hudActiveSuburb">Stand by for satellite telemetry</span>
+                </div>
+              </div>
+              <div class="spatial-right-col">
+                <span class="spatial-speed-val text-teal" id="hudActiveSpeed">0.0 km/h</span>
+                <span class="spatial-heading-val text-muted" id="hudActiveHeading">HEADING --</span>
+              </div>
+            </div>
+
+            <!-- Sector Traversal Discovered Alert (Toast) -->
+            <div class="hud-sector-toast hud-bracket-panel" id="hudSectorToast" style="display: none;">
+              <span class="sector-pulse-star">🌟</span>
+              <div class="sector-toast-text">
+                <span class="sector-toast-tag">SECTOR TRAVERSED</span>
+                <strong class="sector-toast-name text-cyan" id="hudSectorName">Indiranagar</strong>
+              </div>
+              <span class="badge-xp-reward">+25 XP</span>
+            </div>
+
+            <!-- Approaching Landmark Proximity Alert Banner -->
+            <div class="hud-proximity-banner hud-bracket-panel" id="hudProximityBanner" style="display: none;">
+              <div class="proximity-icon">📍</div>
+              <div class="proximity-info">
+                <span class="proximity-label">APPROACHING LANDMARK</span>
+                <span class="proximity-title" id="hudProximityTitle">MG Road Metro Station</span>
+              </div>
+              <span class="proximity-dist text-cyan" id="hudProximityDist">120m Ahead</span>
+              <button class="btn-hud-primary btn-xs" id="btnQuickPinProximity">Pin</button>
+            </div>
+
+            <!-- Bottom Tactical Tracking & Spatial Learning Dock -->
             <div class="map-bottom-dock hud-bracket-panel" id="mapBottomDock">
-              <!-- Telemetry Readouts -->
-              <div class="dock-telemetry-row">
-                <div class="dock-telemetry-cell">
-                  <span class="cell-label">ELAPSED TIME</span>
-                  <span class="cell-value text-cyan" id="dockDuration">00:00:00</span>
+              <!-- Dock Tabs Bar -->
+              <div class="dock-tabs-bar">
+                <button class="dock-tab-btn active" data-dock-tab="telemetry" id="dockTabTelemetry">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="tab-glyph"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                  <span>CONTROLS</span>
+                </button>
+                <button class="dock-tab-btn" data-dock-tab="radar" id="dockTabRadar">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="tab-glyph"><circle cx="12" cy="12" r="10"/><path d="M12 2a10 10 0 0 1 10 10"/></svg>
+                  <span>NEARBY RADAR (<span id="radarCountBadge">0</span>)</span>
+                </button>
+                <button class="dock-tab-btn" data-dock-tab="learning" id="dockTabLearning">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="tab-glyph"><path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm1 15h-2v-6h2zm0-8h-2V7h2z"/></svg>
+                  <span>IN-JOURNEY ANALYSIS</span>
+                </button>
+              </div>
+
+              <!-- Panel 1: Telemetry & Controls -->
+              <div class="dock-panel-content active" id="dockPanelTelemetry">
+                <div class="dock-telemetry-row">
+                  <div class="dock-telemetry-cell">
+                    <span class="cell-label">ELAPSED TIME</span>
+                    <span class="cell-value text-cyan" id="dockDuration">00:00:00</span>
+                  </div>
+                  <div class="dock-telemetry-cell">
+                    <span class="cell-label">DISTANCE</span>
+                    <span class="cell-value text-teal" id="dockDistance">0.00 km</span>
+                  </div>
+                  <div class="dock-telemetry-cell">
+                    <span class="cell-label">SPEED</span>
+                    <span class="cell-value text-white" id="dockSpeed">0.0 km/h</span>
+                  </div>
+                  <div class="dock-telemetry-cell">
+                    <span class="cell-label">POINTS</span>
+                    <span class="cell-value text-amber" id="dockPoints">0</span>
+                  </div>
                 </div>
-                <div class="dock-telemetry-cell">
-                  <span class="cell-label">DISTANCE</span>
-                  <span class="cell-value text-teal" id="dockDistance">0.00 km</span>
-                </div>
-                <div class="dock-telemetry-cell">
-                  <span class="cell-label">SPEED</span>
-                  <span class="cell-value text-white" id="dockSpeed">0.0 km/h</span>
-                </div>
-                <div class="dock-telemetry-cell">
-                  <span class="cell-label">POINTS</span>
-                  <span class="cell-value text-amber" id="dockPoints">0</span>
+
+                <!-- Primary Mission Actions Controls -->
+                <div class="dock-actions-row">
+                  <button class="btn-dock-action btn-start" id="btnDockStart">
+                    <svg viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                    <span>START GPS</span>
+                  </button>
+                  <button class="btn-dock-action btn-demo" id="btnDockSimulate">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                    <span>SIMULATE WALK</span>
+                  </button>
+                  <button class="btn-dock-action btn-pause" id="btnDockPause" style="display: none;">
+                    <svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+                    <span>PAUSE</span>
+                  </button>
+                  <button class="btn-dock-action btn-resume" id="btnDockResume" style="display: none;">
+                    <svg viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                    <span>RESUME</span>
+                  </button>
+                  <button class="btn-dock-action btn-stop" id="btnDockStop" style="display: none;">
+                    <svg viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16"/></svg>
+                    <span>STOP & SAVE</span>
+                  </button>
+                  <button class="btn-dock-action btn-landmark" id="btnDockAddLandmark">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+                    <span>PIN LANDMARK</span>
+                  </button>
                 </div>
               </div>
 
-              <!-- Primary Mission Actions Controls -->
-              <div class="dock-actions-row">
-                <button class="btn-dock-action btn-start" id="btnDockStart">
-                  <svg viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-                  <span>START GPS</span>
-                </button>
-                <button class="btn-dock-action btn-demo" id="btnDockSimulate">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
-                  <span>SIMULATE WALK</span>
-                </button>
-                <button class="btn-dock-action btn-pause" id="btnDockPause" style="display: none;">
-                  <svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
-                  <span>PAUSE</span>
-                </button>
-                <button class="btn-dock-action btn-resume" id="btnDockResume" style="display: none;">
-                  <svg viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-                  <span>RESUME</span>
-                </button>
-                <button class="btn-dock-action btn-stop" id="btnDockStop" style="display: none;">
-                  <svg viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16"/></svg>
-                  <span>STOP & SAVE</span>
-                </button>
-                <button class="btn-dock-action btn-landmark" id="btnDockAddLandmark">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
-                  <span>ADD LANDMARK</span>
-                </button>
+              <!-- Panel 2: Nearby Landmarks Radar -->
+              <div class="dock-panel-content" id="dockPanelRadar" style="display: none;">
+                <div class="radar-list-scroll" id="radarLandmarksList">
+                  <div class="radar-empty-state">Scanning 1.2km radius for prominent landmarks, transit, and POIs...</div>
+                </div>
+              </div>
+
+              <!-- Panel 3: In-Journey Analysis & Quiz -->
+              <div class="dock-panel-content" id="dockPanelLearning" style="display: none;">
+                <div class="in-journey-analysis-grid">
+                  <div class="analysis-stat-box">
+                    <span class="a-label">PACE</span>
+                    <span class="a-val text-cyan" id="analysisPace">--'--"/km</span>
+                  </div>
+                  <div class="analysis-stat-box">
+                    <span class="a-label">RHYTHM</span>
+                    <span class="a-val text-teal" id="analysisRhythm">Stationary</span>
+                  </div>
+                  <div class="analysis-stat-box">
+                    <span class="a-label">SECTORS DISCOVERED</span>
+                    <span class="a-val text-amber" id="analysisSectorsCount">0</span>
+                  </div>
+                  <div class="analysis-stat-box">
+                    <span class="a-label">SESSION XP</span>
+                    <span class="a-val text-violet" id="analysisSessionXP">+0 XP</span>
+                  </div>
+                </div>
+                <div class="analysis-actions-row">
+                  <button class="btn-hud-primary btn-sm btn-quiz-prompt" id="btnLaunchInJourneyQuiz">
+                    <span>🧠 TAKE IN-JOURNEY RECALL QUIZ (+20 XP)</span>
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -727,6 +847,56 @@
               <button type="submit" class="btn-hud-primary">Save to Memory</button>
             </div>
           </form>
+        </div>
+      </div>
+
+      <!-- In-Journey Micro-Recall Quiz Modal -->
+      <div class="hud-modal-backdrop" id="inJourneyQuizModal" style="display: none;">
+        <div class="hud-modal-card hud-bracket-panel quiz-modal-card">
+          <div class="modal-header">
+            <div class="quiz-modal-title-row">
+              <span class="quiz-badge">COGNITIVE IN-JOURNEY CHALLENGE</span>
+              <span class="quiz-reward-badge">+20 XP</span>
+            </div>
+            <button class="btn-icon-close" id="btnCloseInJourneyQuiz">✕</button>
+          </div>
+          <div class="quiz-modal-body">
+            <p class="in-journey-quiz-question" id="inJourneyQuizQuestion">Which street or avenue did you start this journey on?</p>
+            <div class="in-journey-quiz-options" id="inJourneyQuizOptions">
+              <!-- Dynamically populated options -->
+            </div>
+            <div class="in-journey-quiz-feedback" id="inJourneyQuizFeedback" style="display: none;"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Location Sector Selector Modal -->
+      <div class="hud-modal-backdrop" id="sectorPickerModal" style="display: none;">
+        <div class="hud-modal-card hud-bracket-panel sector-modal-card">
+          <div class="modal-header">
+            <h3 class="text-cyan" style="font-family:'Outfit';">SET ACTIVE SECTOR / LOCALITY</h3>
+            <button class="btn-icon-close" id="btnCloseSectorPicker">✕</button>
+          </div>
+          <div class="sector-modal-body">
+            <p style="color:#94A3B8; font-size:0.85rem; margin-bottom:12px;">
+              Choose your city or type your exact neighborhood to lock on your real position.
+            </p>
+            <div class="sector-quick-chips">
+              <button class="sector-chip active" data-lat="17.7338" data-lon="83.3323" data-name="Visakhapatnam, Andhra Pradesh">📍 Visakhapatnam</button>
+              <button class="sector-chip" data-lat="17.3850" data-lon="78.4867" data-name="Hyderabad, Telangana">📍 Hyderabad</button>
+              <button class="sector-chip" data-lat="16.5062" data-lon="80.6480" data-name="Vijayawada, Andhra Pradesh">📍 Vijayawada</button>
+              <button class="sector-chip" data-lat="16.9891" data-lon="82.2475" data-name="Kakinada, Andhra Pradesh">📍 Kakinada</button>
+              <button class="sector-chip" data-lat="12.9716" data-lon="77.5946" data-name="Bangalore, Karnataka">📍 Bangalore</button>
+              <button class="sector-chip" data-lat="13.0827" data-lon="80.2707" data-name="Chennai, Tamil Nadu">📍 Chennai</button>
+            </div>
+            <div style="margin-top:16px;">
+              <label style="font-size:0.75rem; color:#64748B; font-weight:bold; letter-spacing:1px; display:block; margin-bottom:6px;">OR SEARCH YOUR SPECIFIC STREET / TOWN</label>
+              <div style="display:flex; gap:8px;">
+                <input type="text" id="sectorSearchInput" class="hud-input" placeholder="e.g. RK Beach, Madhurawada, Gajuwaka..." style="flex:1;" />
+                <button class="btn-hud-primary" id="btnSearchSectorSubmit">LOCK</button>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>

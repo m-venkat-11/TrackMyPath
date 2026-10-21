@@ -39,9 +39,21 @@ object LiveLocationManager {
         val appContext = context.applicationContext
         isWatching = true
 
-        // 1. Try immediate last known location from cache
+        // 1. Try immediate fresh location + cached location from Google Fused Location
         try {
             fusedClient = LocationServices.getFusedLocationProviderClient(appContext)
+
+            // Active request for a fresh, immediate fix
+            val cancelToken = com.google.android.gms.tasks.CancellationTokenSource()
+            fusedClient?.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, cancelToken.token)
+                ?.addOnSuccessListener { loc ->
+                    if (loc != null) {
+                        Log.d(TAG, "Fresh Google Fused fix acquired: ${loc.latitude}, ${loc.longitude} (±${loc.accuracy}m)")
+                        _currentLocation.value = loc
+                        _isGpsActive.value = true
+                    }
+                }
+
             fusedClient?.lastLocation?.addOnSuccessListener { loc ->
                 if (loc != null && _currentLocation.value == null) {
                     Log.d(TAG, "Cached fused location acquired: ${loc.latitude}, ${loc.longitude}")
@@ -50,7 +62,7 @@ object LiveLocationManager {
                 }
             }
         } catch (e: Throwable) {
-            Log.w(TAG, "Fused lastLocation unavailable: ${e.message}")
+            Log.w(TAG, "Fused location unavailable: ${e.message}")
         }
 
         // 2. Fallback check on native LocationManager last known
