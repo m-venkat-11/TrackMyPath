@@ -541,8 +541,25 @@
                 </button>
                 <button class="dock-tab-btn" data-dock-tab="learning" id="dockTabLearning">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="tab-glyph"><path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm1 15h-2v-6h2zm0-8h-2V7h2z"/></svg>
-                  <span>IN-JOURNEY ANALYSIS</span>
+                  <span>ANALYSIS</span>
                 </button>
+                <button class="dock-collapse-toggle" id="btnToggleDockCollapse" title="Minimize / Expand Dock" aria-label="Toggle Dock">
+                  <span id="dockCollapseIcon">▼</span>
+                </button>
+              </div>
+
+              <!-- Collapsed Mini Pill (Shown when dock is minimized) -->
+              <div class="dock-collapsed-mini" id="dockCollapsedMini" style="display: none;">
+                <div class="mini-status-chip">
+                  <span class="status-dot-pulse" id="miniPulseDot"></span>
+                  <span class="mini-status-text" id="miniStatusText">STANDBY</span>
+                </div>
+                <div class="mini-telemetry-readout">
+                  <span class="mini-val text-cyan" id="miniDur">00:00:00</span>
+                  <span class="mini-divider">•</span>
+                  <span class="mini-val text-teal" id="miniDist">0.00 km</span>
+                </div>
+                <button class="btn-xs btn-dock-action btn-start" id="btnMiniAction">START GPS</button>
               </div>
 
               <!-- Panel 1: Telemetry & Controls -->

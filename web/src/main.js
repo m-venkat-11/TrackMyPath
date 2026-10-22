@@ -530,6 +530,22 @@ function setupTelemetrySubscriber() {
       if (dockSpeed) dockSpeed.textContent = `${speedKmH} km/h`;
       if (dockPts) dockPts.textContent = journey.pointCount;
 
+      // Update Collapsed Mini HUD Pill
+      const miniStatusText = document.getElementById('miniStatusText');
+      const miniPulseDot = document.getElementById('miniPulseDot');
+      const miniDur = document.getElementById('miniDur');
+      const miniDist = document.getElementById('miniDist');
+      const btnMiniAction = document.getElementById('btnMiniAction');
+
+      if (miniStatusText) miniStatusText.textContent = 'RECORDING';
+      if (miniPulseDot) miniPulseDot.style.background = '#FF4757';
+      if (miniDur) miniDur.textContent = durStr;
+      if (miniDist) miniDist.textContent = distStr;
+      if (btnMiniAction) {
+        btnMiniAction.textContent = 'STOP & SAVE';
+        btnMiniAction.className = 'btn-xs btn-dock-action btn-stop';
+      }
+
       // Update Map Route & Position
       if (lastLocation && mainMap) {
         mainMap.updateUserLocation(lastLocation.latitude, lastLocation.longitude);
@@ -645,6 +661,16 @@ function setupTelemetrySubscriber() {
       if (statusText) statusText.textContent = 'PAUSED';
       btnPause.style.display = 'none';
       btnResume.style.display = 'inline-flex';
+
+      const miniStatusText = document.getElementById('miniStatusText');
+      const miniPulseDot = document.getElementById('miniPulseDot');
+      const btnMiniAction = document.getElementById('btnMiniAction');
+      if (miniStatusText) miniStatusText.textContent = 'PAUSED';
+      if (miniPulseDot) miniPulseDot.style.background = '#FFB800';
+      if (btnMiniAction) {
+        btnMiniAction.textContent = 'RESUME';
+        btnMiniAction.className = 'btn-xs btn-dock-action btn-resume';
+      }
     } else {
       // IDLE
       if (statusText) statusText.textContent = 'STANDBY';
@@ -659,6 +685,21 @@ function setupTelemetrySubscriber() {
       if (dockDist) dockDist.textContent = '0.00 km';
       if (dockSpeed) dockSpeed.textContent = '0.0 km/h';
       if (dockPts) dockPts.textContent = '0';
+
+      const miniStatusText = document.getElementById('miniStatusText');
+      const miniPulseDot = document.getElementById('miniPulseDot');
+      const miniDur = document.getElementById('miniDur');
+      const miniDist = document.getElementById('miniDist');
+      const btnMiniAction = document.getElementById('btnMiniAction');
+
+      if (miniStatusText) miniStatusText.textContent = 'STANDBY';
+      if (miniPulseDot) miniPulseDot.style.background = '#00F5FF';
+      if (miniDur) miniDur.textContent = '00:00:00';
+      if (miniDist) miniDist.textContent = '0.00 km';
+      if (btnMiniAction) {
+        btnMiniAction.textContent = 'START GPS';
+        btnMiniAction.className = 'btn-xs btn-dock-action btn-start';
+      }
 
       const proxBanner = document.getElementById('hudProximityBanner');
       if (proxBanner) proxBanner.style.display = 'none';
@@ -881,17 +922,57 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('btnViewAllJourneys')?.addEventListener('click', () => switchTab('journeys'));
   document.getElementById('btnJumpToActiveHUD')?.addEventListener('click', () => switchTab('map'));
 
-  // Home Screen Buttons
-  document.getElementById('btnHomeStartJourney')?.addEventListener('click', () => {
+  const handleLaunchMission = () => {
     switchTab('map');
-    tracker.startRealGPS();
-  });
+    const dock = document.getElementById('mapBottomDock');
+    if (dock) dock.classList.remove('is-collapsed');
+    const icon = document.getElementById('dockCollapseIcon');
+    if (icon) icon.textContent = '▼';
+    switchDockTab('telemetry');
+
+    const seed = mainMap?.userLocation ? {
+      latitude: mainMap.userLocation.lat,
+      longitude: mainMap.userLocation.lng,
+      altitude: 30,
+      speed: 0,
+      accuracy: 5.0,
+      timestamp: Date.now()
+    } : null;
+
+    tracker.startRealGPS(seed);
+  };
+
+  const handleStartSimulation = () => {
+    switchTab('map');
+    const dock = document.getElementById('mapBottomDock');
+    if (dock) dock.classList.remove('is-collapsed');
+    const icon = document.getElementById('dockCollapseIcon');
+    if (icon) icon.textContent = '▼';
+    switchDockTab('telemetry');
+
+    let baseLat = null;
+    let baseLon = null;
+    if (mainMap?.userLocation) {
+      baseLat = mainMap.userLocation.lat;
+      baseLon = mainMap.userLocation.lng;
+    }
+    tracker.startVirtualSimulation(baseLat, baseLon);
+  };
+
+  // Home Screen Buttons
+  const btnHomeStart = document.getElementById('btnHomeStartJourney');
+  if (btnHomeStart) {
+    btnHomeStart.addEventListener('click', (e) => {
+      e.preventDefault();
+      handleLaunchMission();
+    });
+  }
 
   document.getElementById('btnHomeExploreMap')?.addEventListener('click', () => switchTab('map'));
 
-  document.getElementById('btnHomeSimulateWalk')?.addEventListener('click', () => {
-    switchTab('map');
-    tracker.startVirtualSimulation();
+  document.getElementById('btnHomeSimulateWalk')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    handleStartSimulation();
   });
 
   document.getElementById('btnHomeLaunchArena')?.addEventListener('click', () => switchTab('learn'));
@@ -899,6 +980,28 @@ document.addEventListener('DOMContentLoaded', async () => {
     switchTab('learn');
     learnArena.currentMode = 'radar';
     learnArena.render();
+  });
+
+  // Dock Collapse Toggle Button
+  document.getElementById('btnToggleDockCollapse')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const dock = document.getElementById('mapBottomDock');
+    if (!dock) return;
+    const isNowCollapsed = dock.classList.toggle('is-collapsed');
+    const icon = document.getElementById('dockCollapseIcon');
+    if (icon) icon.textContent = isNowCollapsed ? '▲' : '▼';
+    sound.playTap();
+  });
+
+  // Mini Action Button (Inside Collapsed Dock)
+  document.getElementById('btnMiniAction')?.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    if (tracker.state === 'RECORDING') {
+      await tracker.stop();
+      renderHomeDashboard();
+    } else {
+      handleLaunchMission();
+    }
   });
 
   // Dock Segmented Tabs
@@ -938,8 +1041,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   // Dock Action Buttons
-  document.getElementById('btnDockStart')?.addEventListener('click', () => tracker.startRealGPS());
-  document.getElementById('btnDockSimulate')?.addEventListener('click', () => tracker.startVirtualSimulation());
+  document.getElementById('btnDockStart')?.addEventListener('click', () => handleLaunchMission());
+  document.getElementById('btnDockSimulate')?.addEventListener('click', () => handleStartSimulation());
   document.getElementById('btnDockPause')?.addEventListener('click', () => tracker.pause());
   document.getElementById('btnDockResume')?.addEventListener('click', () => tracker.resume());
   document.getElementById('btnDockStop')?.addEventListener('click', async () => {

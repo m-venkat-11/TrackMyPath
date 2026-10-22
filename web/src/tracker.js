@@ -19,11 +19,13 @@ export function calculateHaversine(lat1, lon1, lat2, lon2) {
 }
 
 export function formatDistance(meters) {
+  if (!meters || meters < 0) return '0 m';
   if (meters < 1000) return `${Math.round(meters)} m`;
   return `${(meters / 1000).toFixed(2)} km`;
 }
 
 export function formatDuration(seconds) {
+  if (!seconds || seconds < 0) return '00:00';
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
   const s = Math.floor(seconds % 60);
@@ -57,26 +59,61 @@ class TrackingManager {
       points: this.points,
       lastLocation: this.lastLocation
     };
-    this.listeners.forEach(fn => fn(payload));
+    this.listeners.forEach(fn => {
+      try {
+        fn(payload);
+      } catch (err) {
+        console.warn('Telemetry listener error:', err);
+      }
+    });
   }
 
   startTicker() {
-    clearInterval(this.tickerInterval);
+    this.stopTicker();
     this.tickerInterval = setInterval(() => {
       if (this.state === 'RECORDING' && this.currentJourney) {
-        this.currentJourney.durationSeconds = Math.floor((Date.now() - this.currentJourney.startTime) / 1000);
+        this.currentJourney.durationSeconds = Math.max(1, Math.floor((Date.now() - this.currentJourney.startTime) / 1000));
         this.notify();
       }
     }, 1000);
   }
 
   stopTicker() {
-    clearInterval(this.tickerInterval);
-    this.tickerInterval = null;
+    if (this.tickerInterval) {
+      clearInterval(this.tickerInterval);
+      this.tickerInterval = null;
+    }
   }
 
-  startRealGPS() {
-    this.stop();
+  _clearWatches() {
+    if (this.geoWatchId !== null) {
+      try {
+        navigator.geolocation?.clearWatch(this.geoWatchId);
+      } catch (_) {}
+      this.geoWatchId = null;
+    }
+    if (this.simInterval !== null) {
+      clearInterval(this.simInterval);
+      this.simInterval = null;
+    }
+    this.stopTicker();
+  }
+
+  startRealGPS(seedLocation = null) {
+    this._clearWatches();
+
+    // Safely snapshot & persist any previously active journey without blocking or stomping state
+    if (this.currentJourney && this.points.length > 0) {
+      const prev = {
+        ...this.currentJourney,
+        status: 'COMPLETED',
+        endTime: Date.now(),
+        durationSeconds: Math.max(1, Math.floor((Date.now() - this.currentJourney.startTime) / 1000)),
+        points: [...this.points]
+      };
+      db.saveJourney(prev).catch(e => console.warn('Auto-save prior journey failed:', e));
+    }
+
     sound.playStart();
 
     this.state = 'RECORDING';
@@ -92,6 +129,28 @@ class TrackingManager {
       isDemo: false
     };
     this.points = [];
+
+    // Seed immediate starting position if known from previous GPS lock or user coordinates
+    const initialFix = seedLocation || this.lastLocation || (window.__userInitialCoords ? {
+      latitude: window.__userInitialCoords.lat,
+      longitude: window.__userInitialCoords.lon,
+      altitude: 30,
+      speed: 0,
+      accuracy: 5.0,
+      timestamp: Date.now()
+    } : null);
+
+    if (initialFix && initialFix.latitude && initialFix.longitude) {
+      this.processLocationFix({
+        latitude: initialFix.latitude,
+        longitude: initialFix.longitude,
+        altitude: initialFix.altitude || 30,
+        speed: initialFix.speed || 0,
+        accuracy: initialFix.accuracy || 4.0,
+        timestamp: Date.now()
+      });
+    }
+
     this.startTicker();
 
     if ('geolocation' in navigator) {
@@ -102,39 +161,68 @@ class TrackingManager {
           latitude: pos.coords.latitude,
           longitude: pos.coords.longitude,
           altitude: pos.coords.altitude || 30,
-          speed: pos.coords.speed || 1.35,
+          speed: (pos.coords.speed !== null && pos.coords.speed !== undefined) ? pos.coords.speed : 0,
           accuracy: pos.coords.accuracy || 4.0,
           timestamp: pos.timestamp || Date.now()
         });
       };
 
-      this.geoWatchId = navigator.geolocation.watchPosition(
-        handlePos,
-        (err) => {
-          console.warn('High-accuracy GPS watch error, falling back to standard accuracy:', err.message);
-          window.dispatchEvent(new CustomEvent('pathwise-gps-error', { detail: { code: err.code, message: err.message } }));
-          // Fallback to standard accuracy (Wi-Fi/Cell)
-          if (this.state === 'RECORDING') {
-            this.geoWatchId = navigator.geolocation.watchPosition(
-              handlePos,
-              (err2) => {
-                console.warn('Standard accuracy GPS error:', err2.message);
-                window.dispatchEvent(new CustomEvent('pathwise-gps-error', { detail: { code: err2.code, message: err2.message } }));
-              },
-              { enableHighAccuracy: false, maximumAge: 5000, timeout: 20000 }
-            );
-          }
-        },
-        { enableHighAccuracy: true, maximumAge: 1000, timeout: 10000 }
-      );
+      // Fast single-shot snapshot to warm up GPS hardware quickly
+      try {
+        navigator.geolocation.getCurrentPosition(
+          handlePos,
+          (err) => console.log('Fast GPS snapshot warmup:', err.message),
+          { enableHighAccuracy: true, timeout: 6000, maximumAge: 5000 }
+        );
+      } catch (_) {}
+
+      // Ongoing high-accuracy streaming watch
+      try {
+        this.geoWatchId = navigator.geolocation.watchPosition(
+          handlePos,
+          (err) => {
+            console.warn('High-accuracy GPS watch error, falling back:', err.message);
+            window.dispatchEvent(new CustomEvent('pathwise-gps-error', { detail: { code: err.code, message: err.message } }));
+            if (this.state === 'RECORDING') {
+              try {
+                if (this.geoWatchId !== null) navigator.geolocation.clearWatch(this.geoWatchId);
+              } catch (_) {}
+              this.geoWatchId = navigator.geolocation.watchPosition(
+                handlePos,
+                (err2) => {
+                  console.warn('Standard accuracy GPS error:', err2.message);
+                  window.dispatchEvent(new CustomEvent('pathwise-gps-error', { detail: { code: err2.code, message: err2.message } }));
+                },
+                { enableHighAccuracy: false, maximumAge: 5000, timeout: 20000 }
+              );
+            }
+          },
+          { enableHighAccuracy: true, maximumAge: 2000, timeout: 12000 }
+        );
+      } catch (e) {
+        console.error('WatchPosition failed to initialize:', e);
+      }
     } else {
       window.dispatchEvent(new CustomEvent('pathwise-gps-error', { detail: { code: 2, message: 'Geolocation not supported in this browser' } }));
     }
+
     this.notify();
   }
 
   startVirtualSimulation(baseLat = null, baseLon = null) {
-    this.stop();
+    this._clearWatches();
+
+    if (this.currentJourney && this.points.length > 0) {
+      const prev = {
+        ...this.currentJourney,
+        status: 'COMPLETED',
+        endTime: Date.now(),
+        durationSeconds: Math.max(1, Math.floor((Date.now() - this.currentJourney.startTime) / 1000)),
+        points: [...this.points]
+      };
+      db.saveJourney(prev).catch(e => console.warn('Auto-save prior journey failed:', e));
+    }
+
     sound.playStart();
 
     // Dynamically anchor to real acquired position
@@ -204,7 +292,6 @@ class TrackingManager {
         this.processLocationFix(pt);
         stepIdx++;
       } else {
-        // Complete walk
         clearInterval(this.simInterval);
       }
     }, 1500);
@@ -216,13 +303,15 @@ class TrackingManager {
     if (this.points.length > 0) {
       const prev = this.points[this.points.length - 1];
       const dist = calculateHaversine(prev.latitude, prev.longitude, pt.latitude, pt.longitude);
-      if (dist >= 1.0) { // filter micro-jitter
+      if (dist >= 0.8) { // Filter sub-meter micro-jitter
         this.currentJourney.recordedDistanceMeters += dist;
       }
     }
 
     this.points.push(pt);
-    this.currentJourney.pointCount = this.points.length;
+    if (this.currentJourney) {
+      this.currentJourney.pointCount = this.points.length;
+    }
     this.lastLocation = pt;
     this.notify();
   }
@@ -242,30 +331,29 @@ class TrackingManager {
   }
 
   async stop() {
-    if (this.geoWatchId !== null) {
-      navigator.geolocation?.clearWatch(this.geoWatchId);
-      this.geoWatchId = null;
-    }
-    if (this.simInterval !== null) {
-      clearInterval(this.simInterval);
-      this.simInterval = null;
-    }
-    this.stopTicker();
+    this._clearWatches();
 
-    if (this.currentJourney && this.points.length > 0) {
-      sound.playStop();
-      this.currentJourney.status = 'COMPLETED';
-      this.currentJourney.endTime = Date.now();
-      this.currentJourney.durationSeconds = Math.floor((this.currentJourney.endTime - this.currentJourney.startTime) / 1000);
-      this.currentJourney.points = [...this.points];
-
-      await db.saveJourney(this.currentJourney);
-    }
+    const journeyToSave = this.currentJourney;
+    const pointsToSave = [...this.points];
 
     this.state = 'IDLE';
     this.currentJourney = null;
     this.points = [];
     this.notify();
+
+    if (journeyToSave && pointsToSave.length > 0) {
+      sound.playStop();
+      journeyToSave.status = 'COMPLETED';
+      journeyToSave.endTime = Date.now();
+      journeyToSave.durationSeconds = Math.max(1, Math.floor((journeyToSave.endTime - journeyToSave.startTime) / 1000));
+      journeyToSave.points = pointsToSave;
+
+      try {
+        await db.saveJourney(journeyToSave);
+      } catch (err) {
+        console.error('Failed to save completed journey:', err);
+      }
+    }
   }
 }
 
